@@ -1,0 +1,46 @@
+{
+  "id": "uac-0082-orcshred-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0082 · ORCSHRED route stage",
+  "titleUk": "UAC-0082 · Етап ORCSHRED",
+  "descriptionEn": "Reads local route metadata and writes a cron specimen inside the temporary work directory.",
+  "descriptionUk": "Читає метадані локальних маршрутів і створює зразок cron у тимчасовому каталозі.",
+  "limitationsEn": "No cron installation, SSH probes, credential use, or propagation.",
+  "limitationsUk": "Без встановлення cron, SSH-запитів, використання облікових даних чи поширення.",
+  "sourceUrl": "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/",
+  "sourceLabel": "ESET Research",
+  "flow": [
+    {
+      "id": "routes",
+      "titleEn": "Route inventory",
+      "titleUk": "Огляд маршрутів",
+      "noteEn": "Reads local routing data without probing reachable hosts.",
+      "noteUk": "Читає локальні маршрути без запитів до доступних хостів."
+    },
+    {
+      "id": "schedule",
+      "titleEn": "Cron specimen",
+      "titleUk": "Зразок cron",
+      "noteEn": "Writes an inert schedule line to a file that is never installed.",
+      "noteUk": "Записує інертний розклад у файл, який ніколи не встановлюється."
+    },
+    {
+      "id": "propagation",
+      "titleEn": "Spread boundary",
+      "titleUk": "Межа поширення",
+      "noteEn": "Confirms that the scenario made no SSH connections.",
+      "noteUk": "Підтверджує, що сценарій не робив SSH-з’єднань."
+    },
+    {
+      "id": "report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Returns route counts and specimen metadata.",
+      "noteUk": "Повертає кількість маршрутів і метадані зразка."
+    }
+  ],
+  "requires": [
+    "python3"
+  ],
+  "clusterId": "UAC-0082"
+}

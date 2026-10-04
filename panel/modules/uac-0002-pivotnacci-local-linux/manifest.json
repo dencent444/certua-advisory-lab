@@ -1,0 +1,46 @@
+{
+  "id": "uac-0002-pivotnacci-local-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0002 · PIVOTNACCI local agent",
+  "titleUk": "UAC-0002 · Локальний агент PIVOTNACCI",
+  "descriptionEn": "Starts an HTTP agent on loopback and makes one fixed, inert request.",
+  "descriptionUk": "Запускає HTTP-агент на loopback і робить один фіксований інертний запит.",
+  "limitationsEn": "No SOCKS listener, pivoting, or third-party address.",
+  "limitationsUk": "Без SOCKS-прослуховування, pivoting чи сторонньої адреси.",
+  "sourceUrl": "https://cip.gov.ua/services/cm/api/attachment/download?id=65898",
+  "sourceLabel": "SSSCIP / CERT-UA",
+  "requires": [
+    "python3"
+  ],
+  "flow": [
+    {
+      "id": "piv_bind",
+      "titleEn": "Local bind",
+      "titleUk": "Локальне з’єднання",
+      "noteEn": "Binds only to 127.0.0.1.",
+      "noteUk": "Прив’язується лише до 127.0.0.1."
+    },
+    {
+      "id": "piv_http",
+      "titleEn": "HTTP agent",
+      "titleUk": "HTTP-агент",
+      "noteEn": "Handles one fixed local HTTP request.",
+      "noteUk": "Обробляє один фіксований локальний HTTP-запит."
+    },
+    {
+      "id": "piv_close",
+      "titleEn": "Close agent",
+      "titleUk": "Завершення агента",
+      "noteEn": "Closes the local listener after the exchange.",
+      "noteUk": "Закриває локальне прослуховування після обміну."
+    },
+    {
+      "id": "piv_report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Reports request and cleanup outcomes.",
+      "noteUk": "Повертає результати запиту й очищення."
+    }
+  ],
+  "clusterId": "UAC-0002"
+}

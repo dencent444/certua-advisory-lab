@@ -1,0 +1,47 @@
+{
+  "id": "uac-0082-awfulshred-priority-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0082 · AWFULSHRED priority paths",
+  "titleUk": "UAC-0082 · Пріоритетні шляхи AWFULSHRED",
+  "descriptionEn": "Creates and removes synthetic boot, home, and var/log files inside the work directory.",
+  "descriptionUk": "Створює й видаляє синтетичні файли boot, home та var/log лише в робочому каталозі.",
+  "limitationsEn": "The actual /boot, /home, and /var/log paths are never modified.",
+  "limitationsUk": "Справжні /boot, /home та /var/log ніколи не змінюються.",
+  "sourceUrl": "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/",
+  "sourceLabel": "ESET Research",
+  "requires": [
+    "python3",
+    "rm"
+  ],
+  "flow": [
+    {
+      "id": "path_scratch",
+      "titleEn": "Synthetic tree",
+      "titleUk": "Синтетичне дерево",
+      "noteEn": "Creates a small lookalike tree inside the temporary directory.",
+      "noteUk": "Створює мале дерево-подобу у тимчасовому каталозі."
+    },
+    {
+      "id": "path_remove",
+      "titleEn": "Scoped remove",
+      "titleUk": "Обмежене видалення",
+      "noteEn": "Runs rm only on module-owned files.",
+      "noteUk": "Запускає rm лише для файлів модуля."
+    },
+    {
+      "id": "path_verify",
+      "titleEn": "No host changes",
+      "titleUk": "Без змін хоста",
+      "noteEn": "Checks that the synthetic paths were removed.",
+      "noteUk": "Перевіряє видалення синтетичних шляхів."
+    },
+    {
+      "id": "path_report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Returns only counts.",
+      "noteUk": "Повертає лише кількість."
+    }
+  ],
+  "clusterId": "UAC-0082"
+}

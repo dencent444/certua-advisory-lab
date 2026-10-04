@@ -1,0 +1,47 @@
+{
+  "id": "uac-0082-awfulshred-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0082 · AWFULSHRED wiper",
+  "titleUk": "UAC-0082 · Вайпер AWFULSHRED",
+  "descriptionEn": "Checks service state without changing it and runs shred against small files created by this module only.",
+  "descriptionUk": "Перевіряє стан служб без змін і запускає shred лише для малих файлів, створених цим модулем.",
+  "limitationsEn": "No real service stop, system file wipe, disk overwrite, reboot, or persistence.",
+  "limitationsUk": "Без зупинки справжніх служб, стирання системних файлів чи дисків, перезавантаження або закріплення.",
+  "sourceUrl": "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/",
+  "sourceLabel": "ESET Research",
+  "flow": [
+    {
+      "id": "services",
+      "titleEn": "Service review",
+      "titleUk": "Огляд служб",
+      "noteEn": "Queries relevant service names without stopping or disabling them.",
+      "noteUk": "Перевіряє відповідні служби без зупинки чи вимкнення."
+    },
+    {
+      "id": "scratch",
+      "titleEn": "Scratch set",
+      "titleUk": "Тестові файли",
+      "noteEn": "Creates bounded throwaway files inside the temporary module directory.",
+      "noteUk": "Створює обмежені тестові файли у тимчасовому каталозі."
+    },
+    {
+      "id": "shred",
+      "titleEn": "Scratch shred",
+      "titleUk": "Стирання тестових файлів",
+      "noteEn": "Runs shred only on those throwaway files.",
+      "noteUk": "Запускає shred лише для цих тестових файлів."
+    },
+    {
+      "id": "report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Returns counts; host data and disks stay untouched.",
+      "noteUk": "Повертає кількість; дані хоста та диски не змінюються."
+    }
+  ],
+  "requires": [
+    "python3",
+    "shred"
+  ],
+  "clusterId": "UAC-0082"
+}

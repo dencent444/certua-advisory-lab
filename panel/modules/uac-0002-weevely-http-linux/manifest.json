@@ -1,0 +1,47 @@
+{
+  "id": "uac-0002-weevely-http-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0002 · WEEVELY HTTP marker",
+  "titleUk": "UAC-0002 · HTTP-маркер WEEVELY",
+  "descriptionEn": "Runs a harmless PHP endpoint on loopback and checks an authorized POST marker.",
+  "descriptionUk": "Запускає безпечний PHP endpoint на loopback і перевіряє маркер авторизованого POST-запиту.",
+  "limitationsEn": "No command execution, obfuscation, external webroot, or attacker connection.",
+  "limitationsUk": "Без виконання команд, обфускації, зовнішнього webroot чи з’єднання зі зловмисником.",
+  "sourceUrl": "https://cip.gov.ua/services/cm/api/attachment/download?id=65898",
+  "sourceLabel": "SSSCIP / CERT-UA",
+  "requires": [
+    "python3",
+    "php"
+  ],
+  "flow": [
+    {
+      "id": "wee_file",
+      "titleEn": "PHP file",
+      "titleUk": "PHP-файл",
+      "noteEn": "Writes an inert PHP script inside the temporary directory.",
+      "noteUk": "Записує інертний PHP-скрипт у тимчасовий каталог."
+    },
+    {
+      "id": "wee_listen",
+      "titleEn": "Loopback server",
+      "titleUk": "Локальний сервер",
+      "noteEn": "Starts PHP only on 127.0.0.1 for this run.",
+      "noteUk": "Запускає PHP лише на 127.0.0.1 на час запуску."
+    },
+    {
+      "id": "wee_post",
+      "titleEn": "POST marker",
+      "titleUk": "POST-маркер",
+      "noteEn": "Verifies denied and allowed requests without executing commands.",
+      "noteUk": "Перевіряє відхилений і дозволений запити без виконання команд."
+    },
+    {
+      "id": "wee_report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Reports only local request outcomes.",
+      "noteUk": "Повертає лише результати локальних запитів."
+    }
+  ],
+  "clusterId": "UAC-0002"
+}

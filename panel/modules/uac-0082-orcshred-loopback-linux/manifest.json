@@ -1,0 +1,46 @@
+{
+  "id": "uac-0082-orcshred-loopback-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0082 · ORCSHRED port probe",
+  "titleUk": "UAC-0082 · Перевірка портів ORCSHRED",
+  "descriptionEn": "Attempts TCP connect to the reported SSH ports on loopback only.",
+  "descriptionUk": "Перевіряє TCP-з’єднання з описаними SSH-портами лише на loopback.",
+  "limitationsEn": "No network-range scan, login attempt, credential use, or copy to another host.",
+  "limitationsUk": "Без сканування мережі, входу, використання облікових даних чи копіювання на інший хост.",
+  "sourceUrl": "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/",
+  "sourceLabel": "ESET Research",
+  "requires": [
+    "python3"
+  ],
+  "flow": [
+    {
+      "id": "probe_scope",
+      "titleEn": "Loopback scope",
+      "titleUk": "Межа loopback",
+      "noteEn": "Hard-codes 127.0.0.1 as the only destination.",
+      "noteUk": "Жорстко задає 127.0.0.1 як єдину адресу."
+    },
+    {
+      "id": "probe_ports",
+      "titleEn": "Four port probes",
+      "titleUk": "Чотири порти",
+      "noteEn": "Checks only ports 22, 2468, 24687, and 522.",
+      "noteUk": "Перевіряє лише порти 22, 2468, 24687 та 522."
+    },
+    {
+      "id": "probe_noauth",
+      "titleEn": "No authentication",
+      "titleUk": "Без автентифікації",
+      "noteEn": "Closes each socket without an SSH handshake.",
+      "noteUk": "Закриває кожен сокет без SSH-обміну."
+    },
+    {
+      "id": "probe_report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Returns counts but no host identifiers.",
+      "noteUk": "Повертає кількість без ідентифікаторів хостів."
+    }
+  ],
+  "clusterId": "UAC-0082"
+}

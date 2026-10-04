@@ -1,0 +1,47 @@
+{
+  "id": "uac-0002-regeorg-http-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0002 · REGEORG.NEO marker",
+  "titleUk": "UAC-0002 · Маркер REGEORG.NEO",
+  "descriptionEn": "Runs an inert PHP HTTP endpoint with a fixed request and response on loopback.",
+  "descriptionUk": "Запускає інертний PHP HTTP endpoint із фіксованим запитом і відповіддю на loopback.",
+  "limitationsEn": "No SOCKS proxy, arbitrary forwarding, or access to an internal network.",
+  "limitationsUk": "Без SOCKS-проксі, довільного перенаправлення чи доступу до внутрішньої мережі.",
+  "sourceUrl": "https://cip.gov.ua/services/cm/api/attachment/download?id=65898",
+  "sourceLabel": "SSSCIP / CERT-UA",
+  "requires": [
+    "python3",
+    "php"
+  ],
+  "flow": [
+    {
+      "id": "reg_file",
+      "titleEn": "PHP endpoint",
+      "titleUk": "PHP endpoint",
+      "noteEn": "Writes a bounded local PHP endpoint.",
+      "noteUk": "Записує обмежений локальний PHP endpoint."
+    },
+    {
+      "id": "reg_listen",
+      "titleEn": "Loopback server",
+      "titleUk": "Локальний сервер",
+      "noteEn": "Starts the PHP server on loopback only.",
+      "noteUk": "Запускає PHP-сервер лише на loopback."
+    },
+    {
+      "id": "reg_post",
+      "titleEn": "Fixed exchange",
+      "titleUk": "Фіксований обмін",
+      "noteEn": "Uses a fixed POST exchange with no destination field.",
+      "noteUk": "Виконує фіксований POST-обмін без поля адреси призначення."
+    },
+    {
+      "id": "reg_report",
+      "titleEn": "Evidence",
+      "titleUk": "Звіт",
+      "noteEn": "Returns the local exchange result.",
+      "noteUk": "Повертає результат локального обміну."
+    }
+  ],
+  "clusterId": "UAC-0002"
+}

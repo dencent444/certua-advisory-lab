@@ -1,0 +1,18 @@
+{
+  "id": "uac-0145-linux",
+  "platform": "linux",
+  "titleEn": "UAC-0145 · Trojanized VPN delivery",
+  "titleUk": "UAC-0145 · Підмінений VPN-клієнт",
+  "descriptionEn": "Uses a WireGuard tunnel to this lab VPS, downloads and runs a harmless second stage, then reports readable file metadata as hypothetical impact. No contents leave the host.",
+  "descriptionUk": "Через тунель WireGuard до лабораторного VPS завантажує і запускає безпечний другий етап, а потім оцінює доступні файли за метаданими. Вміст файлів не передається.",
+  "sourceUrl": "https://cert.gov.ua/article/6318863",
+  "sourceLabel": "CERT-UA",
+  "limitationsEn": "File exposure is a separate impact hypothesis; CERT-UA did not disclose the SopraVPN Linux second-stage payload.",
+  "limitationsUk": "Оцінка доступних файлів — окрема гіпотеза впливу; CERT-UA не розкрив Linux-код другого етапу SopraVPN.",
+  "requires": [
+    "python3",
+    "curl",
+    "sha256sum"
+  ],
+  "clusterId": "UAC-0145"
+}

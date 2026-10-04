@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "reference": {
+    "statement": "CERT-UA tracked over 150 UAC threat clusters in 2025",
+    "asOf": "2025",
+    "sourceUrl": "https://cip.gov.ua/en/faqs/cyber-threat-overview-and-defense-strategies-in-2025-cert-ua-s-experience"
+  },
+  "coverage": {
+    "linuxModules": 16,
+    "distinctUacIds": 3
+  },
+  "clusters": [
+    {
+      "id": "UAC-0002",
+      "sources": [
+        "https://cert.gov.ua/article/6278706",
+        "https://cip.gov.ua/services/cm/api/attachment/download?id=65898"
+      ],
+      "modules": [
+        "uac-0002-biasboat-linux",
+        "uac-0002-biasboat-message-linux",
+        "uac-0002-loadgrip-linux",
+        "uac-0002-php-artifacts-linux",
+        "uac-0002-pivotnacci-local-linux",
+        "uac-0002-regeorg-http-linux",
+        "uac-0002-weevely-http-linux"
+      ]
+    },
+    {
+      "id": "UAC-0082",
+      "sources": [
+        "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/"
+      ],
+      "modules": [
+        "uac-0082-awfulshred-dd-linux",
+        "uac-0082-awfulshred-disks-linux",
+        "uac-0082-awfulshred-linux",
+        "uac-0082-awfulshred-priority-linux",
+        "uac-0082-orcshred-cron-linux",
+        "uac-0082-orcshred-linux",
+        "uac-0082-orcshred-loopback-linux",
+        "uac-0082-orcshred-routes-linux"
+      ]
+    },
+    {
+      "id": "UAC-0145",
+      "sources": [
+        "https://cert.gov.ua/article/6318863"
+      ],
+      "modules": [
+        "uac-0145-linux"
+      ]
+    }
+  ]
+}
