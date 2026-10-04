@@ -5,6 +5,7 @@
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -65,13 +66,90 @@ std::map<std::string, std::chrono::steady_clock::time_point> sessions;
 ProbeResult probe;
 TunnelStatus tunnel;
 std::string agent_key;
+std::string wg_server_public_key;
+std::string wg_public_endpoint;
+std::string wg_client_sha;
 std::unique_ptr<Postgres> database;
 int listen_port = 0;
 int agent_port = 0;
 int admin_socket = -1;
 int agent_socket = -1;
+int module_socket = -1;
 volatile std::sig_atomic_t stop_requested = 0;
 fs::path dist_dir;
+fs::path modules_dir;
+
+bool valid_module_id(const std::string& id) {
+  return !id.empty() && id.size() <= 64 &&
+         std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+           return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
+         });
+}
+
+std::optional<json> load_module(const std::string& id) {
+  if (!valid_module_id(id)) return std::nullopt;
+  const fs::path root = modules_dir / id;
+  std::ifstream manifest_file(root / "manifest.json");
+  std::ifstream run_file(root / "run.sh");
+  if (!manifest_file || !run_file) return std::nullopt;
+  const auto manifest = json::parse(manifest_file, nullptr, false);
+  if (!manifest.is_object() || manifest.value("id", "") != id ||
+      manifest.value("platform", "") != "linux") return std::nullopt;
+  if (manifest.contains("requires")) {
+    if (!manifest["requires"].is_array()) return std::nullopt;
+    for (const auto& requirement : manifest["requires"]) {
+      if (!requirement.is_string()) return std::nullopt;
+      const std::string command = requirement.get<std::string>();
+      if (command.empty() || command.size() > 32 ||
+          !std::all_of(command.begin(), command.end(), [](unsigned char ch) {
+            return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                   (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
+          })) return std::nullopt;
+    }
+  }
+  return manifest;
+}
+
+std::string module_file(const std::string& id, const std::string& name) {
+  const auto manifest = load_module(id);
+  if (!manifest || (name != "run.sh" && name != "stage.sh")) return "";
+  std::ifstream file(modules_dir / id / name, std::ios::binary);
+  if (!file) return "";
+  const std::string content(std::istreambuf_iterator<char>(file), {});
+  if (name != "run.sh" || !manifest->contains("requires")) return content;
+  std::string preflight = "#!/usr/bin/env bash\nset -euo pipefail\nmissing=''\n";
+  for (const auto& requirement : (*manifest)["requires"]) {
+    const std::string command = requirement.get<std::string>();
+    preflight += "if ! command -v " + command + " >/dev/null 2>&1; then missing=\"${missing:+$missing,}" + command + "\"; fi\n";
+  }
+  preflight += "if [ -n \"$missing\" ]; then printf '{\"preflight\":{\"ok\":false,\"missing\":\"%s\"}}' \"$missing\" > \"$1/result.json\"; exit 0; fi\n";
+  return preflight + content;
+}
+
+std::string sha256_hex(const std::string& content) {
+  unsigned char digest[SHA256_DIGEST_LENGTH];
+  SHA256(reinterpret_cast<const unsigned char*>(content.data()), content.size(), digest);
+  constexpr char hex[] = "0123456789abcdef";
+  std::string result;
+  for (unsigned char byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
+  return result;
+}
+
+std::string agent_hmac_hex(const std::string& message) {
+  unsigned char key[32];
+  for (size_t index = 0; index < 32; ++index) {
+    const auto digit = [](char ch) -> unsigned { return ch <= '9' ? ch - '0' : ch - 'a' + 10; };
+    key[index] = static_cast<unsigned char>(digit(agent_key[index * 2]) * 16 + digit(agent_key[index * 2 + 1]));
+  }
+  unsigned char digest[EVP_MAX_MD_SIZE];
+  unsigned int length = 0;
+  if (!HMAC(EVP_sha256(), key, sizeof(key), reinterpret_cast<const unsigned char*>(message.data()),
+            message.size(), digest, &length) || length != 32) throw std::runtime_error("HMAC failed");
+  constexpr char hex[] = "0123456789abcdef";
+  std::string result;
+  for (unsigned index = 0; index < length; ++index) { result += hex[digest[index] >> 4]; result += hex[digest[index] & 15]; }
+  return result;
+}
 
 std::string now_utc() {
   const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -88,6 +166,22 @@ void append_log(const std::string& tab, const std::string& level,
   auto& entries = logs[tab];
   entries.insert(entries.begin(), {now_utc(), level, en, uk});
   if (entries.size() > 50) entries.resize(50);
+}
+
+void task_event(const std::string& task_id, const std::string& code,
+                const std::string& source, const std::string& level) {
+  database->query("INSERT INTO public.panel_task_events (task_id, code, source, level) "
+                  "VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (task_id, code) DO NOTHING",
+                  {task_id, code, source, level});
+}
+
+bool allowed_agent_event(const std::string& code) {
+  static const std::vector<std::string> allowed = {
+      "task_verified", "key_ready", "peer_enrolled", "tunnel_ready",
+      "module_downloaded", "hash_verified", "execution_started", "execution_finished",
+      "signature_failed", "peer_enrollment_failed", "tunnel_failed",
+      "module_fetch_failed", "hash_mismatch", "execution_failed"};
+  return std::find(allowed.begin(), allowed.end(), code) != allowed.end();
 }
 
 size_t curl_write(char* data, size_t size, size_t count, void* context) {
@@ -229,6 +323,19 @@ void initialize_database() {
                   "info JSONB NOT NULL DEFAULT '{}'::jsonb, disabled BOOLEAN NOT NULL DEFAULT false)");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT '{}'::jsonb");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT false");
+  database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_public_key TEXT");
+  database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_ip TEXT");
+  database->query("CREATE SEQUENCE IF NOT EXISTS public.panel_wg_ip_seq START 2 MAXVALUE 254");
+  database->query("CREATE TABLE IF NOT EXISTS public.panel_tasks ("
+                  "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES public.panel_agents(id), "
+                  "scenario TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', "
+                  "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                  "result JSONB NOT NULL DEFAULT '{}'::jsonb)");
+  database->query("ALTER TABLE public.panel_tasks ADD COLUMN IF NOT EXISTS verbosity TEXT NOT NULL DEFAULT 'standard'");
+  database->query("CREATE TABLE IF NOT EXISTS public.panel_task_events ("
+                  "id BIGSERIAL PRIMARY KEY, task_id BIGINT NOT NULL REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
+                  "code TEXT NOT NULL, source TEXT NOT NULL, level TEXT NOT NULL, "
+                  "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (task_id, code))");
   database->query("CREATE TABLE IF NOT EXISTS public.panel_settings ("
                   "key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   database->query("INSERT INTO public.panel_settings (key, value) VALUES ('agent_key', $1) "
@@ -366,9 +473,10 @@ Write-Host 'CertUaAgent scheduled task started.'
 
 std::string linux_agent_command(const std::string& base_url) {
   if (!valid_agent_base_url(base_url)) return "";
+  if (!wg_server_public_key.empty() && wg_client_sha.empty()) return "";
   std::string command = R"PANEL(bash <<'PANEL_INSTALL'
 set -euo pipefail
-for tool in systemctl loginctl curl openssl od hostname tr date uname nproc awk; do
+for tool in systemctl loginctl curl openssl od hostname tr date uname nproc awk sed cut sha256sum mktemp; do
   command -v "$tool" >/dev/null || { printf 'Missing command: %s\n' "$tool" >&2; exit 1; }
 done
 user_name="$(id -un)"
@@ -386,6 +494,11 @@ mkdir -p "$agent_dir" "$unit_dir"
 chmod 700 "$agent_dir"
 openssl rand -hex 16 > "$agent_dir/id"
 chmod 600 "$agent_dir/id"
+if [ -n '__HELPER_SHA__' ]; then
+  curl --fail --silent --show-error --connect-timeout 10 --max-time 60 '__HELPER_URL__' -o "$agent_dir/wg-client"
+  [ "$(sha256sum "$agent_dir/wg-client" | cut -d' ' -f1)" = '__HELPER_SHA__' ]
+  chmod 700 "$agent_dir/wg-client"
+fi
 cat > "$agent_dir/agent.sh" <<'PANEL_AGENT_BODY'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -393,18 +506,41 @@ agent_dir="$HOME/.local/share/certua-agent"
 agent_id="$(cat "$agent_dir/id")"
 key_hex='__KEY__'
 endpoint='__ENDPOINT__'
+module_endpoint='__MODULE_ENDPOINT__'
+enroll_endpoint='__ENROLL_ENDPOINT__'
+wg_server_public_key='__WG_PUBLIC__'
+wg_public_endpoint='__WG_ENDPOINT__'
 name="$(hostname | tr -cd '[:alnum:]._-')"
 name="${name:0:80}"
 name="${name:-linux-agent}"
 os="$(uname -s | tr -cd '[:alnum:]_.-')"
 arch="$(uname -m | tr -cd '[:alnum:]_.-')"
 last_info=0
+verbosity='standard'
+emit_event() {
+  local code="$1" level="$2" event_ts event_nonce event_info event_message event_signature event_body
+  [ "$verbosity" = standard ] && return 0
+  [ "$verbosity" = detailed ] && [ "$level" = trace ] && return 0
+  event_ts="$(date -u +%s)"
+  event_nonce="$(openssl rand -hex 16)"
+  event_info="$(printf '{"taskEvent":{"id":%s,"code":"%s"}}' "$task_id" "$code")"
+  event_message="${agent_id}|${event_ts}|${event_nonce}|${name}|${event_info}"
+  event_signature="$(printf '%s' "$event_message" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${key_hex}" -binary | od -An -tx1 | tr -d '[:space:]')"
+  event_body="$(printf '{"id":"%s","name":"%s","ts":%s,"nonce":"%s","signature":"%s","info":"%s"}' \
+    "$agent_id" "$name" "$event_ts" "$event_nonce" "$event_signature" "${event_info//\"/\\\"}")"
+  curl --fail --silent --show-error --retry 2 --connect-timeout 5 --max-time 8 \
+    -H 'Content-Type: application/json' --data-binary "$event_body" "$endpoint" >/dev/null || true
+}
 while :; do
   ts="$(date -u +%s)"
   nonce="$(openssl rand -hex 16)"
   message="${agent_id}|${ts}|${nonce}|${name}"
   info=''
-  if (( ts - last_info >= 60 )); then
+  if [ -f "$agent_dir/result" ]; then
+    read -r task_id task_ok task_evidence < "$agent_dir/result"
+    info="$(printf '{"taskResult":{"id":%s,"ok":%s,"evidence":%s}}' "$task_id" "$task_ok" "$task_evidence")"
+    message="${message}|${info}"
+  elif (( ts - last_info >= 60 )); then
     cpu="$(nproc)"
     memory_mib="$(awk '/MemTotal:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
     uptime_seconds="$(awk '{print int($1)}' /proc/uptime)"
@@ -420,12 +556,106 @@ while :; do
     body="$(printf '{"id":"%s","name":"%s","ts":%s,"nonce":"%s","signature":"%s"}' "$agent_id" "$name" "$ts" "$nonce" "$signature")"
   fi
   if response="$(curl --fail --silent --show-error --connect-timeout 10 --max-time 20 -H 'Content-Type: application/json' --data-binary "$body" "$endpoint")"; then
+    if [ -f "$agent_dir/result" ]; then rm -f "$agent_dir/result"; fi
     if [[ "$response" == *'"disconnect":true'* ]]; then
       systemctl --user disable certua-agent.service >/dev/null || true
-      rm -f "$HOME/.config/systemd/user/certua-agent.service" "$agent_dir/agent.sh" "$agent_dir/id"
+      rm -f "$HOME/.config/systemd/user/certua-agent.service" "$agent_dir/agent.sh" "$agent_dir/id" \
+        "$agent_dir/wg-client" "$agent_dir/wg-private" "$agent_dir/wg-public" "$agent_dir/result"
       systemctl --user daemon-reload
       rmdir "$agent_dir" || true
       exit 0
+    fi
+    if [[ "$response" =~ \"task\":([0-9]+) ]] &&
+       [[ "$response" =~ \"module\":\"([a-z0-9-]+)\" ]] &&
+       [[ "$response" =~ \"sha256\":\"([a-f0-9]{64})\" ]] &&
+       [[ "$response" =~ \"taskSignature\":\"([a-f0-9]{64})\" ]]; then
+      task_id="$(printf '%s' "$response" | sed -n 's/.*"task":\([0-9]*\).*/\1/p')"
+      module="$(printf '%s' "$response" | sed -n 's/.*"module":"\([a-z0-9-]*\)".*/\1/p')"
+      expected_hash="$(printf '%s' "$response" | sed -n 's/.*"sha256":"\([a-f0-9]*\)".*/\1/p')"
+      task_signature="$(printf '%s' "$response" | sed -n 's/.*"taskSignature":"\([a-f0-9]*\)".*/\1/p')"
+      verbosity="$(printf '%s' "$response" | sed -n 's/.*"verbosity":"\(standard\|detailed\|trace\)".*/\1/p')"
+      verbosity="${verbosity:-standard}"
+      signed_task="${agent_id}|${nonce}|${task_id}|${module}|${expected_hash}"
+      verified_signature="$(printf '%s' "$signed_task" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${key_hex}" -binary | od -An -tx1 | tr -d '[:space:]')"
+      if [ "$task_signature" != "$verified_signature" ]; then
+        emit_event signature_failed detailed
+        printf '%s false {}\n' "$task_id" > "$agent_dir/result"
+        continue
+      fi
+      emit_event task_verified detailed
+      if [ -n "$wg_server_public_key" ]; then
+        if [ ! -s "$agent_dir/wg-private" ]; then
+          "$agent_dir/wg-client" keygen "$agent_dir/wg-private" "$agent_dir/wg-public"
+        fi
+        emit_event key_ready trace
+        public_key="$(cat "$agent_dir/wg-public")"
+        enroll_ts="$(date -u +%s)"
+        enroll_nonce="$(openssl rand -hex 16)"
+        enroll_message="${agent_id}|${enroll_ts}|${enroll_nonce}|${name}|wg:${public_key}"
+        enroll_signature="$(printf '%s' "$enroll_message" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${key_hex}" -binary | od -An -tx1 | tr -d '[:space:]')"
+        enroll_body="$(printf '{"id":"%s","name":"%s","ts":%s,"nonce":"%s","signature":"%s","publicKey":"%s"}' \
+          "$agent_id" "$name" "$enroll_ts" "$enroll_nonce" "$enroll_signature" "$public_key")"
+        if ! enroll_response="$(curl --fail --silent --show-error --connect-timeout 10 --max-time 20 \
+             -H 'Content-Type: application/json' --data-binary "$enroll_body" "$enroll_endpoint")"; then
+          emit_event peer_enrollment_failed detailed
+          printf '%s false {}\n' "$task_id" > "$agent_dir/result"
+          continue
+        fi
+        wg_client_ip="$(printf '%s' "$enroll_response" | sed -n 's/.*"ip":"\([0-9.]*\)".*/\1/p')"
+        received_key="$(printf '%s' "$enroll_response" | sed -n 's/.*"serverPublicKey":"\([A-Za-z0-9+/=]*\)".*/\1/p')"
+        received_endpoint="$(printf '%s' "$enroll_response" | sed -n 's/.*"endpoint":"\([0-9.:]*\)".*/\1/p')"
+        if [ "$received_key" != "$wg_server_public_key" ] || [ "$received_endpoint" != "$wg_public_endpoint" ] ||
+           [[ ! "$wg_client_ip" =~ ^10\.145\.20\.[0-9]{1,3}$ ]]; then
+          emit_event peer_enrollment_failed detailed
+          printf '%s false {}\n' "$task_id" > "$agent_dir/result"
+          continue
+        fi
+        emit_event peer_enrolled detailed
+      fi
+      work_dir="$(mktemp -d)"
+      chmod 700 "$work_dir"
+      proxy=''
+      proxy_pid=''
+      if [ -n "$wg_server_public_key" ]; then
+        "$agent_dir/wg-client" proxy "$agent_dir/wg-private" "$wg_client_ip" "$wg_server_public_key" \
+          "$wg_public_endpoint" "$work_dir/proxy-port" > "$work_dir/wg.log" 2>&1 &
+        proxy_pid=$!
+        for attempt in {1..20}; do [ -s "$work_dir/proxy-port" ] && break; sleep 0.2; done
+        if [ -s "$work_dir/proxy-port" ]; then proxy="http://127.0.0.1:$(cat "$work_dir/proxy-port")"; fi
+        [ -n "$proxy" ] && emit_event tunnel_ready detailed
+        [ -z "$proxy" ] && emit_event tunnel_failed detailed
+      fi
+      proxy_args=()
+      if [ -n "$proxy" ]; then proxy_args=(--proxy "$proxy"); fi
+      module_ok=false
+      if { [ -z "$wg_server_public_key" ] || [ -n "$proxy" ]; } &&
+         curl --fail --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
+           --noproxy '' "${proxy_args[@]}" "$module_endpoint?name=$module&file=run.sh" -o "$work_dir/run.sh"; then
+        emit_event module_downloaded detailed
+        if [ "$(sha256sum "$work_dir/run.sh" | cut -d' ' -f1)" = "$expected_hash" ]; then
+          emit_event hash_verified trace
+          emit_event execution_started detailed
+          if PANEL_VERBOSITY="$verbosity" bash "$work_dir/run.sh" "$work_dir" "$module_endpoint?name=$module&file=stage.sh" "$proxy"; then
+            emit_event execution_finished detailed
+            module_ok=true
+          else
+            emit_event execution_failed detailed
+          fi
+        else
+          emit_event hash_mismatch detailed
+        fi
+      else
+        emit_event module_fetch_failed detailed
+      fi
+      if [ "$module_ok" = true ]; then
+        module_evidence='{}'
+        if [ -s "$work_dir/result.json" ]; then module_evidence="$(cat "$work_dir/result.json")"; fi
+        printf '%s true %s\n' "$task_id" "$module_evidence" > "$agent_dir/result"
+      else
+        printf '%s false {}\n' "$task_id" > "$agent_dir/result"
+      fi
+      if [ -n "$proxy_pid" ]; then kill "$proxy_pid" 2>/dev/null || true; wait "$proxy_pid" 2>/dev/null || true; fi
+      rm -rf -- "$work_dir"
     fi
   else
     printf 'Heartbeat failed\n' >&2
@@ -456,6 +686,14 @@ printf 'certua-agent.service started\n'
 PANEL_INSTALL)PANEL";
   replace_all(command, "__KEY__", agent_key);
   replace_all(command, "__ENDPOINT__", base_url + "/api/agent/heartbeat");
+  const char* private_module_url = std::getenv("PANEL_MODULE_ENDPOINT");
+  replace_all(command, "__MODULE_ENDPOINT__", private_module_url && *private_module_url
+                  ? std::string(private_module_url) : base_url + "/api/agent/module");
+  replace_all(command, "__ENROLL_ENDPOINT__", base_url + "/api/agent/wg-enroll");
+  replace_all(command, "__HELPER_URL__", base_url + "/api/agent/wg-client");
+  replace_all(command, "__HELPER_SHA__", wg_client_sha);
+  replace_all(command, "__WG_PUBLIC__", wg_server_public_key);
+  replace_all(command, "__WG_ENDPOINT__", wg_public_endpoint);
   return command;
 }
 
@@ -509,7 +747,7 @@ json connection_status() {
     {"agentCommand", agent_command(base_url)},
     {"linuxAgentCommand", linux_agent_command(base_url)},
     {"agents", live_agents_unlocked()},
-    {"agentPullReady", false},
+    {"agentPullReady", true},
   };
 }
 
@@ -764,7 +1002,7 @@ std::string login_page(bool ukrainian) {
          "</script></html>";
 }
 
-void handle_client(int client, bool agent_listener) {
+void handle_client(int client, bool agent_listener, bool module_listener = false) {
   std::string request;
   char buffer[2048];
   while (request.size() < 8192 && request.find("\r\n\r\n") == std::string::npos) {
@@ -776,12 +1014,34 @@ void handle_client(int client, bool agent_listener) {
   std::string method, target, version;
   line >> method >> target >> version;
   const std::string path = target.substr(0, target.find('?'));
-  if (agent_listener && (method != "POST" || path != "/api/agent/heartbeat")) {
+  if ((module_listener || (agent_listener && module_socket < 0)) && method == "GET" &&
+      path == "/api/agent/module") {
+    const std::string content = module_file(query_value(target, "name"), query_value(target, "file"));
+    if (content.empty()) reply(client, 404, "application/json", R"({"error":"not found"})");
+    else reply(client, 200, "text/x-shellscript; charset=utf-8", content);
+    close(client);
+    return;
+  }
+  if (agent_listener && method == "GET" && path == "/api/agent/wg-client") {
+    std::ifstream file(dist_dir.parent_path() / "build/wg-client", std::ios::binary);
+    if (!file) reply(client, 404, "application/json", R"({"error":"not found"})");
+    else reply(client, 200, "application/octet-stream",
+               std::string(std::istreambuf_iterator<char>(file), {}));
+    close(client);
+    return;
+  }
+  if (module_listener) {
     reply(client, 404, "application/json", R"({"error":"not found"})");
     close(client);
     return;
   }
-  if (!agent_listener && path == "/api/agent/heartbeat") {
+  if (agent_listener && (method != "POST" ||
+      (path != "/api/agent/heartbeat" && path != "/api/agent/wg-enroll"))) {
+    reply(client, 404, "application/json", R"({"error":"not found"})");
+    close(client);
+    return;
+  }
+  if (!agent_listener && path.rfind("/api/agent/", 0) == 0) {
     reply(client, 404, "application/json", R"({"error":"not found"})");
     close(client);
     return;
@@ -794,6 +1054,45 @@ void handle_client(int client, bool agent_listener) {
 
   const bool head_only = method == "HEAD";
   try {
+    if (agent_listener && method == "POST" && path == "/api/agent/wg-enroll") {
+      const auto body = request_body(client, request);
+      const auto payload = body ? json::parse(*body, nullptr, false) : json();
+      if (!payload.is_object()) {
+        reply(client, 400, "application/json", R"({"error":"invalid body"})");
+      } else {
+        const std::string id = payload.value("id", "");
+        const std::string name = payload.value("name", "");
+        const int64_t ts = payload.value("ts", int64_t{0});
+        const std::string nonce = payload.value("nonce", "");
+        const std::string signature = payload.value("signature", "");
+        const std::string pub = payload.value("publicKey", "");
+        const bool valid_key = pub.size() == 44 && pub.back() == '=' &&
+            std::all_of(pub.begin(), pub.end() - 1, [](unsigned char ch) {
+              return std::isalnum(ch) || ch == '+' || ch == '/';
+            });
+        if (!valid_key || id.empty() || !valid_signature(id, name, ts, nonce, signature, "wg:" + pub)) {
+          reply(client, 403, "application/json", R"({"error":"invalid enrollment"})");
+        } else {
+          std::lock_guard lock(state_mutex);
+          if (used_nonces.contains(nonce)) {
+            reply(client, 403, "application/json", R"({"error":"replayed enrollment"})");
+          } else {
+            used_nonces[nonce] = std::chrono::steady_clock::now();
+            const auto rows = database->query(
+                "UPDATE public.panel_agents SET wg_public_key = $2, "
+                "wg_ip = COALESCE(wg_ip, '10.145.20.' || nextval('public.panel_wg_ip_seq')::text) "
+                "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
+                "RETURNING wg_ip", {id, pub});
+            if (rows.empty()) reply(client, 403, "application/json", R"({"error":"agent unavailable"})");
+            else reply(client, 200, "application/json",
+                       json{{"ip", rows[0][0]}, {"serverPublicKey", wg_server_public_key},
+                            {"endpoint", wg_public_endpoint}}.dump());
+          }
+        }
+      }
+      close(client);
+      return;
+    }
     if (method == "POST" && path == "/api/agent/heartbeat") {
       const auto header_end = request.find("\r\n\r\n");
       size_t body_length = 0;
@@ -831,7 +1130,7 @@ void handle_client(int client, bool agent_listener) {
                        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || ch == '-';
                      })) {
             reply(client, 400, "application/json", R"({"error":"invalid agent"})");
-          } else if (info.size() > 512 || !parsed_info.is_object()) {
+          } else if (info.size() > 2048 || !parsed_info.is_object()) {
             reply(client, 400, "application/json", R"({"error":"invalid info"})");
           } else if (!valid_signature(id, name, timestamp, nonce, signature, info)) {
             reply(client, 403, "application/json", R"({"error":"invalid signature"})");
@@ -856,7 +1155,78 @@ void handle_client(int client, bool agent_listener) {
                                   "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, last_seen = now()",
                                   {id, name});
                   if (!info.empty()) {
-                    database->query("UPDATE public.panel_agents SET info = $2::jsonb WHERE id = $1", {id, info});
+                    if (parsed_info.contains("os"))
+                      database->query("UPDATE public.panel_agents SET info = $2::jsonb WHERE id = $1", {id, info});
+                    if (parsed_info.contains("taskResult") && parsed_info["taskResult"].is_object()) {
+                      const auto& result = parsed_info["taskResult"];
+                      if (result.contains("id") && result["id"].is_number_unsigned() &&
+                          result.contains("ok") && result["ok"].is_boolean()) {
+                        const std::string task_id = std::to_string(result["id"].get<uint64_t>());
+                        const bool ok = result["ok"].get<bool>();
+                        const bool missing_dependencies = ok && result.contains("evidence") &&
+                            result["evidence"].is_object() &&
+                            result["evidence"].contains("preflight") &&
+                            result["evidence"]["preflight"].is_object() &&
+                            result["evidence"]["preflight"].contains("ok") &&
+                            result["evidence"]["preflight"]["ok"].is_boolean() &&
+                            !result["evidence"]["preflight"]["ok"].get<bool>();
+                        const bool effective_ok = ok && !missing_dependencies;
+                        json stored_result = result;
+                        if (missing_dependencies) {
+                          stored_result["ok"] = false;
+                          stored_result["error"] = "missing dependencies";
+                        }
+                        const auto updated = database->query(
+                            "UPDATE public.panel_tasks SET status = $3, result = $4::jsonb, "
+                            "updated_at = now() WHERE id = $1 AND agent_id = $2 AND status = 'running' RETURNING verbosity, scenario",
+                            {task_id, id, effective_ok ? "completed" : "failed", stored_result.dump()});
+                        if (!updated.empty()) {
+                          if (missing_dependencies) task_event(task_id, "dependency_missing", "evidence", "standard");
+                          if (effective_ok && result.contains("evidence") && result["evidence"].is_object()) {
+                            const auto& evidence = result["evidence"];
+                            if (updated[0][0] != "standard") {
+                              if (evidence.value("config", false)) task_event(task_id, "config_prepared", "evidence", "detailed");
+                              if (evidence.value("download", false)) task_event(task_id, "stage_downloaded", "evidence", "detailed");
+                              if (evidence.value("executed", false)) task_event(task_id, "stage_executed", "evidence", "detailed");
+                            }
+                            if (evidence.contains("survey") && evidence["survey"].is_object())
+                              task_event(task_id, "survey_reported", "evidence", "standard");
+                            const auto manifest = load_module(updated[0][1]);
+                            if (manifest && manifest->contains("flow") && (*manifest)["flow"].is_array() &&
+                                evidence.contains("phases") && evidence["phases"].is_object()) {
+                              for (const auto& stage : (*manifest)["flow"]) {
+                                if (!stage.is_object() || !stage.contains("id") || !stage["id"].is_string()) continue;
+                                const std::string phase = stage["id"].get<std::string>();
+                                if (phase.empty() || phase.size() > 32 ||
+                                    !std::all_of(phase.begin(), phase.end(), [](unsigned char ch) {
+                                      return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
+                                             ch == '-' || ch == '_';
+                                    })) continue;
+                                if (evidence["phases"].contains(phase) &&
+                                    evidence["phases"][phase].is_boolean() &&
+                                    evidence["phases"][phase].get<bool>())
+                                  task_event(task_id, "phase_" + phase, "evidence", "standard");
+                              }
+                            }
+                          }
+                          task_event(task_id, effective_ok ? "completed" : "failed", "server", "standard");
+                        }
+                      }
+                    }
+                    if (parsed_info.contains("taskEvent") && parsed_info["taskEvent"].is_object()) {
+                      const auto& event = parsed_info["taskEvent"];
+                      if (event.contains("id") && event["id"].is_number_unsigned() &&
+                          event.contains("code") && event["code"].is_string()) {
+                        const std::string code = event["code"].get<std::string>();
+                        if (allowed_agent_event(code)) database->query(
+                            "INSERT INTO public.panel_task_events (task_id, code, source, level) "
+                            "SELECT id, $3, 'agent', $4 FROM public.panel_tasks "
+                            "WHERE id = $1::bigint AND agent_id = $2 AND status = 'running' "
+                            "ON CONFLICT (task_id, code) DO NOTHING",
+                            {std::to_string(event["id"].get<uint64_t>()), id, code,
+                             code == "key_ready" || code == "hash_verified" ? "trace" : "detailed"});
+                      }
+                    }
                   }
                   is_new = !agents.contains(id);
                   agents[id] = {name, now_utc(), now};
@@ -874,7 +1244,33 @@ void handle_client(int client, bool agent_listener) {
               append_log("connect", "INFO", "Agent connected: " + name,
                          "Агент підключився: " + name);
               }
-              reply(client, 200, "application/json", R"({"ok":true})");
+              if (parsed_info.contains("taskEvent")) {
+                reply(client, 200, "application/json", R"({"ok":true})");
+                close(client);
+                return;
+              }
+              const auto queued = database->query(
+                  "UPDATE public.panel_tasks SET status = 'running', updated_at = now() "
+                  "WHERE id = (SELECT id FROM public.panel_tasks WHERE agent_id = $1 AND status = 'queued' "
+                  "ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id", {id});
+              if (queued.empty()) reply(client, 200, "application/json", R"({"ok":true})");
+              else {
+                task_event(queued[0][0], "dispatched", "server", "standard");
+                const auto module_rows = database->query("SELECT scenario, verbosity FROM public.panel_tasks WHERE id = $1", {queued[0][0]});
+                const std::string module = module_rows[0][0];
+                const std::string script = module_file(module, "run.sh");
+                if (script.empty()) {
+                  database->query("UPDATE public.panel_tasks SET status = 'failed', result = '{\"error\":\"module missing\"}'::jsonb WHERE id = $1", {queued[0][0]});
+                  task_event(queued[0][0], "module_missing", "server", "standard");
+                  reply(client, 200, "application/json", R"({"ok":true})");
+                } else {
+                  const std::string hash = sha256_hex(script);
+                  const std::string signature = agent_hmac_hex(id + "|" + nonce + "|" + queued[0][0] + "|" + module + "|" + hash);
+                  reply(client, 200, "application/json", json{{"ok", true}, {"task", std::stoull(queued[0][0])},
+                                                             {"module", module}, {"sha256", hash}, {"verbosity", module_rows[0][1]},
+                                                             {"taskSignature", signature}}.dump());
+                }
+              }
             }
           }
         }
@@ -989,6 +1385,42 @@ void handle_client(int client, bool agent_listener) {
       close(client);
       return;
     }
+    if (path == "/api/tasks" && method == "POST") {
+      const auto body = request_body(client, request);
+      const auto payload = body ? json::parse(*body, nullptr, false) : json();
+      if (!payload.is_object() || !payload.contains("module") || !payload["module"].is_string() ||
+          !payload.contains("agentId") || !payload["agentId"].is_string()) {
+        reply(client, 400, "application/json", R"({"error":"invalid task"})");
+      } else {
+        const std::string id = payload["agentId"].get<std::string>();
+        const std::string module = payload["module"].get<std::string>();
+        const std::string verbosity = payload.contains("verbosity") && payload["verbosity"].is_string()
+                                          ? payload["verbosity"].get<std::string>() : "standard";
+        if (verbosity != "standard" && verbosity != "detailed" && verbosity != "trace") {
+          reply(client, 400, "application/json", R"({"error":"invalid verbosity"})");
+          close(client);
+          return;
+        }
+        if (!load_module(module)) {
+          reply(client, 404, "application/json", R"({"error":"module not found"})");
+          close(client);
+          return;
+        }
+        const auto rows = database->query(
+            "INSERT INTO public.panel_tasks (agent_id, scenario, verbosity) "
+            "SELECT id, $2, $3 FROM public.panel_agents "
+            "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
+            "AND info->>'os' = 'Linux' RETURNING id", {id, module, verbosity});
+        if (rows.empty()) reply(client, 404, "application/json", R"({"error":"Linux agent unavailable"})");
+        else {
+          task_event(rows[0][0], "queued", "server", "standard");
+          append_log("tasks", "INFO", module + " queued for " + id, module + " поставлено в чергу для " + id);
+          reply(client, 200, "application/json", json{{"id", std::stoull(rows[0][0])}}.dump());
+        }
+      }
+      close(client);
+      return;
+    }
     if (method == "POST") {
       reply(client, 405, "application/json", R"({"error":"method not allowed"})");
       close(client);
@@ -1006,7 +1438,44 @@ void handle_client(int client, bool agent_listener) {
         connected = live_agents_unlocked();
       }
       reply(client, 200, "application/json",
-            json{{"agents", connected}, {"pullImplemented", false}}.dump(), head_only);
+            json{{"agents", connected}, {"pullImplemented", true}}.dump(), head_only);
+    } else if (path == "/api/tasks") {
+      json tasks = json::array();
+      const auto rows = database->query(
+          "SELECT t.id, t.agent_id, a.name, t.scenario, t.status, "
+          "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), t.result::text, t.verbosity "
+          "FROM public.panel_tasks t JOIN public.panel_agents a ON a.id = t.agent_id "
+          "ORDER BY t.id DESC LIMIT 100");
+      for (const auto& row : rows)
+        tasks.push_back({{"id", row[0]}, {"agentId", row[1]}, {"agentName", row[2]},
+                         {"scenario", row[3]}, {"status", row[4]}, {"createdAt", row[5]},
+                         {"result", json::parse(row[6])}, {"verbosity", row[7]}});
+      reply(client, 200, "application/json", json{{"tasks", tasks}}.dump(), head_only);
+    } else if (path == "/api/task-events") {
+      const std::string task_id = query_value(target, "task");
+      if (task_id.empty() || task_id.size() > 20 ||
+          !std::all_of(task_id.begin(), task_id.end(), [](unsigned char ch) { return std::isdigit(ch); })) {
+        reply(client, 400, "application/json", R"({"error":"invalid task"})", head_only);
+      } else {
+        json events = json::array();
+        const auto rows = database->query(
+            "SELECT e.id, e.code, e.source, e.level, "
+            "to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') "
+            "FROM public.panel_task_events e WHERE e.task_id = $1::bigint ORDER BY e.id LIMIT 250",
+            {task_id});
+        for (const auto& row : rows)
+          events.push_back({{"id", row[0]}, {"code", row[1]}, {"source", row[2]},
+                            {"level", row[3]}, {"time", row[4]}});
+        reply(client, 200, "application/json", json{{"task", task_id}, {"events", events}}.dump(), head_only);
+      }
+    } else if (path == "/api/modules") {
+      json modules = json::array();
+      if (fs::exists(modules_dir)) for (const auto& entry : fs::directory_iterator(modules_dir)) {
+        if (!entry.is_directory()) continue;
+        const auto module = load_module(entry.path().filename().string());
+        if (module) modules.push_back(*module);
+      }
+      reply(client, 200, "application/json", json{{"modules", modules}}.dump(), head_only);
     } else if (path == "/api/creds") {
       reply(client, 200, "application/json", json{{"username", load_account().username}}.dump(), head_only);
     } else if (path == "/api/logs") {
@@ -1064,7 +1533,7 @@ int make_listener(int port, in_addr_t address_type) {
   return listener;
 }
 
-void accept_clients(int listener, bool agent_listener) {
+void accept_clients(int listener, bool agent_listener, bool module_listener = false) {
   while (!stop_requested) {
     const int client = accept(listener, nullptr, nullptr);
     if (client < 0) {
@@ -1073,7 +1542,9 @@ void accept_clients(int listener, bool agent_listener) {
     }
     const timeval timeout{5, 0};
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    std::thread([client, agent_listener]() { handle_client(client, agent_listener); }).detach();
+    std::thread([client, agent_listener, module_listener]() {
+      handle_client(client, agent_listener, module_listener);
+    }).detach();
   }
 }
 
@@ -1097,6 +1568,11 @@ int main(int argc, char** argv) {
   if (listen_port < 1 || listen_port > 65535 || agent_port < 1 || agent_port > 65535 ||
       listen_port == agent_port) return 2;
   dist_dir = fs::absolute(argv[3]);
+  modules_dir = dist_dir.parent_path() / "modules";
+  {
+    std::ifstream helper(dist_dir.parent_path() / "build/wg-client", std::ios::binary);
+    if (helper) wg_client_sha = sha256_hex(std::string(std::istreambuf_iterator<char>(helper), {}));
+  }
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, [](int) { stop_requested = 1; });
   std::signal(SIGTERM, [](int) { stop_requested = 1; });
@@ -1108,14 +1584,18 @@ int main(int argc, char** argv) {
       throw std::runtime_error("agent key is missing or invalid");
     }
     agent_key = key_rows[0][0];
+    const char* wg_public = std::getenv("PANEL_WG_SERVER_PUBLIC_KEY");
+    const char* wg_endpoint = std::getenv("PANEL_WG_PUBLIC_ENDPOINT");
+    wg_server_public_key = wg_public ? wg_public : "";
+    wg_public_endpoint = wg_endpoint ? wg_endpoint : "";
   } catch (const std::exception& error) {
     std::cerr << "Panel database: " << error.what() << '\n';
     return 1;
   }
   append_log("main", "INFO", "Panel server started", "Сервер панелі запущено");
   append_log("creds", "INFO", "Panel account loaded from PostgreSQL", "Обліковий запис панелі завантажено з PostgreSQL");
-  append_log("tasks", "INFO", "Task service is not connected", "Сервіс завдань не підключено");
-  append_log("agents", "INFO", "Agent pull is not implemented", "Pull агентів не реалізовано");
+  append_log("tasks", "INFO", "Task queue ready", "Черга завдань готова");
+  append_log("agents", "INFO", "Linux module pull ready", "Pull модулів Linux готовий");
   append_log("connect", "INFO", "External port check is pending", "Зовнішня перевірка порту очікується");
 
   admin_socket = make_listener(listen_port, INADDR_LOOPBACK);
@@ -1125,14 +1605,27 @@ int main(int argc, char** argv) {
     close(admin_socket);
     return 1;
   }
+  const char* module_bind = std::getenv("PANEL_MODULE_BIND");
+  if (module_bind && *module_bind) {
+    const in_addr_t address = inet_addr(module_bind);
+    const char* module_port_env = std::getenv("PANEL_MODULE_PORT");
+    const int port = module_port_env ? std::stoi(module_port_env) : agent_port + 1;
+    if (address == INADDR_NONE || port < 1 || port > 65535) return 1;
+    module_socket = make_listener(port, ntohl(address));
+    if (module_socket < 0) return 1;
+  }
   std::cout << "Panel listening on http://127.0.0.1:" << listen_port
             << "; agent endpoint on port " << agent_port << std::endl;
   std::thread agent_worker([]() { accept_clients(agent_socket, true); });
+  std::thread module_worker;
+  if (module_socket >= 0) module_worker = std::thread([]() { accept_clients(module_socket, false, true); });
   std::thread connection_worker(manage_connection);
   accept_clients(admin_socket, false);
   agent_worker.join();
+  if (module_worker.joinable()) module_worker.join();
   connection_worker.join();
   close(agent_socket);
+  if (module_socket >= 0) close(module_socket);
   close(admin_socket);
   return 0;
 }
