@@ -1,0 +1,20 @@
+[Unit]
+Description=CERT-UA advisory lab panel
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=certua_panel
+Group=certua_panel
+WorkingDirectory=/opt/cert-ua-panel
+Environment="PANEL_DATABASE_URL=host=/var/run/postgresql dbname=certua_panel user=certua_panel"
+ExecStart=/opt/cert-ua-panel/build/panel-server 4180 4181 /opt/cert-ua-panel/dist
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+port="${1:-}"
+case "$port" in
+  ''|*[!0-9]*)
+    echo 'Использование: ./panel/run <порт>' >&2
+    exit 2
+    ;;
+esac
+
+if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+  echo 'Порт должен быть числом от 1 до 65535.' >&2
+  exit 2
+fi
+
+agent_port="${PANEL_AGENT_PORT:-$((port + 1))}"
+case "$agent_port" in
+  ''|*[!0-9]*)
+    echo 'PANEL_AGENT_PORT должен быть числом от 1 до 65535.' >&2
+    exit 2
+    ;;
+esac
+if [ "$agent_port" -lt 1 ] || [ "$agent_port" -gt 65535 ] || [ "$agent_port" -eq "$port" ]; then
+  echo 'Порт агентов должен отличаться от порта панели и быть в диапазоне 1–65535.' >&2
+  exit 2
+fi
+
+cd "$(dirname "$0")"
+if ! command -v npm >/dev/null 2>&1 && [ -s "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  nvm use --silent default >/dev/null
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo 'Для запуска нужны Node.js и npm.' >&2
+  exit 1
+fi
+
+if [ -L node_modules ] && [ ! -d node_modules ]; then
+  unlink node_modules
+fi
+
+if [ ! -d node_modules ]; then
+  npm ci
+fi
+npm run build
+mkdir -p build
+g++ -std=c++20 -O2 -Wall -Wextra -pthread server/main.cpp -lcurl -lcrypto -ldl -o build/panel-server
+if [ -n "${PANEL_BOOTSTRAP_PASSWORD:-}" ]; then
+  build/panel-server --init-db
+fi
+exec build/panel-server "$port" "$agent_port" dist
