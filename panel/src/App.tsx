@@ -3,6 +3,20 @@ import AttackMap, { eventLabel, metricLabel, metricValue, type TaskEvent } from 
 
 type Page = 'main' | 'creds' | 'tasks' | 'scenarios' | 'agents' | 'connect' | 'attacks'
 type Language = 'en' | 'uk'
+type Theme = 'red' | 'green' | 'blue' | 'purple' | 'white'
+
+const themes: { id: Theme; labelEn: string; labelUk: string; color: string }[] = [
+  { id: 'red', labelEn: 'Red', labelUk: 'Червоний', color: '#ff3047' },
+  { id: 'green', labelEn: 'Green', labelUk: 'Зелений', color: '#00e676' },
+  { id: 'blue', labelEn: 'Blue', labelUk: 'Синій', color: '#00a2ff' },
+  { id: 'purple', labelEn: 'Purple', labelUk: 'Фіолетовий', color: '#b347ff' },
+  { id: 'white', labelEn: 'White', labelUk: 'Білий', color: '#cbd5e1' },
+]
+
+function currentTheme(): Theme {
+  const saved = localStorage.getItem('certua_theme') as Theme
+  return ['red', 'green', 'blue', 'purple', 'white'].includes(saved) ? saved : 'red'
+}
 type Instance = { id: string; name: string; address: string }
 type Agent = { id: string; name: string; lastSeen: string; info: { os?: string; arch?: string; cpu?: number; memoryMiB?: number; uptimeSeconds?: number } }
 type ServerLog = { time: string; level: string; message: string }
@@ -140,6 +154,12 @@ function App() {
   const navigationRef = useRef<HTMLElement>(null)
   const [page, setPage] = useState<Page>(currentPage)
   const [language, setLanguage] = useState<Language>(currentLanguage)
+  const [theme, setTheme] = useState<Theme>(currentTheme)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('certua_theme', theme)
+  }, [theme])
   const [accountName, setAccountName] = useState('')
   const [username, setUsername] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -667,7 +687,7 @@ function App() {
     <div className="app-shell">
       <header className="site-header">
         <div className="header-inner">
-          <a className="brand" href={`/main${window.location.search}`} onClick={(event) => { event.preventDefault(); navigate('main') }}><span className="brand-mark" aria-hidden="true">P</span><span>Panel</span></a>
+          <a className="brand" href={`/main${window.location.search}`} onClick={(event) => { event.preventDefault(); navigate('main') }}><span className="brand-mark" aria-hidden="true">C</span><span>certua-advisory-lab</span></a>
           <nav className="navigation" ref={navigationRef} aria-label={t.navLabel}>
             {pages.map((item) => (
               <a key={item} href={`/${item}${window.location.search}`} className={page === item ? 'nav-link active' : 'nav-link'} aria-current={page === item ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(item) }}>{t.pages[item]}</a>
@@ -675,6 +695,20 @@ function App() {
           </nav>
           <div className="header-tools">
             <span className="session-label">{t.session}</span>
+            <div className="theme-switch" aria-label={language === 'uk' ? 'Колірна тема' : 'Color theme'}>
+              {themes.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`theme-dot ${theme === item.id ? 'active' : ''}`}
+                  style={{ '--dot-color': item.color } as React.CSSProperties}
+                  title={language === 'uk' ? item.labelUk : item.labelEn}
+                  aria-label={language === 'uk' ? item.labelUk : item.labelEn}
+                  aria-pressed={theme === item.id}
+                  onClick={() => setTheme(item.id)}
+                />
+              ))}
+            </div>
             <div className="language-switch" aria-label="Language / Мова">
               <button type="button" className={language === 'en' ? 'selected' : ''} aria-pressed={language === 'en'} onClick={() => changeLanguage('en')}>EN</button>
               <span aria-hidden="true">/</span>
