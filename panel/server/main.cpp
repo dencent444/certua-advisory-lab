@@ -979,14 +979,14 @@ std::optional<std::string> request_body(int client, const std::string& request) 
 }
 
 std::string login_page(bool ukrainian) {
-  const std::string title = ukrainian ? "Вхід до панелі" : "Panel sign in";
+  const std::string title = ukrainian ? "Вхід до лабораторії" : "certua-advisory-lab sign in";
   const std::string username = ukrainian ? "Ім’я користувача" : "Username";
   const std::string password = ukrainian ? "Пароль" : "Password";
   const std::string submit = ukrainian ? "Увійти" : "Sign in";
   const std::string error = ukrainian ? "Неправильні дані доступу" : "Invalid credentials";
   return "<!doctype html><html lang='" + std::string(ukrainian ? "uk" : "en") +
          "'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-         "<title>" + title + " · Panel</title><style>"
+         "<title>" + title + " · certua-advisory-lab</title><style>"
          "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#fff;font:13px system-ui,sans-serif}"
          "main{width:min(400px,calc(100vw - 32px));border:1px solid #a7192d;padding:28px}h1{font-size:20px;margin:0 0 26px}"
          "label{display:block;margin:16px 0 7px}input{width:100%;height:40px;padding:8px 10px;background:#080808;color:#fff;border:1px solid #8b1527}"
