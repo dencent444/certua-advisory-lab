@@ -1,0 +1,8 @@
+[Unit]
+Description=Sync CERT-UA lab WireGuard peers
+After=postgresql.service wg-quick@certua-lab.service
+Requires=postgresql.service wg-quick@certua-lab.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/cert-ua-panel/deploy/sync-wg-peers.sh

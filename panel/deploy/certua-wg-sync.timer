@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh CERT-UA lab WireGuard peers
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=certua-wg-sync.service
+
+[Install]
+WantedBy=timers.target
