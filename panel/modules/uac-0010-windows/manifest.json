@@ -1,0 +1,16 @@
+{
+  "id":"uac-0010-windows","clusterId":"UAC-0010","platform":"windows",
+  "titleEn":"UAC-0010 · GammaLoad → GammaSteel","titleUk":"UAC-0010 · GammaLoad → GammaSteel",
+  "descriptionEn":"Inert VBScript launched through a temporary scheduled task, followed by collection and archiving of module-owned document decoys.",
+  "descriptionUk":"Інертний VBScript через тимчасове заплановане завдання, далі відбір і архівування лише тестових документів модуля.",
+  "limitationsEn":"No macro document, real user-file search, credential access, download, or exfiltration. Alerting depends on the test EDR policy.",
+  "limitationsUk":"Без макросу, пошуку справжніх файлів користувача, облікових даних, завантаження чи витоку. Спрацювання залежить від політик тестового EDR.",
+  "sourceUrl":"https://cert.gov.ua/article/18365","sourceLabel":"CERT-UA",
+  "requires":["wscript.exe","Register-ScheduledTask","Compress-Archive"],
+  "flow":[
+    {"id":"script","titleEn":"GammaLoad script host","titleUk":"GammaLoad: скриптовий хост","noteEn":"Creates an inert VBScript and host marker.","noteUk":"Створює інертний VBScript і маркер хоста."},
+    {"id":"task","titleEn":"Scheduled task persistence","titleUk":"Закріплення через завдання","noteEn":"Creates, runs, and removes a task scoped to this lab run.","noteUk":"Створює, запускає та видаляє завдання цього тесту."},
+    {"id":"collect","titleEn":"GammaSteel file targeting","titleUk":"GammaSteel: відбір файлів","noteEn":"Reads only module-owned decoy documents.","noteUk":"Читає лише тестові документи модуля."},
+    {"id":"archive","titleEn":"Staging archive","titleUk":"Архів для підготовки","noteEn":"Archives decoys in the temporary work directory.","noteUk":"Архівує тестові файли в тимчасовому каталозі."}
+  ]
+}
