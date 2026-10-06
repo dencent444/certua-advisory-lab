@@ -1,0 +1,47 @@
+{
+  "id": "uac-0190-windows",
+  "clusterId": "UAC-0190",
+  "platform": "windows",
+  "titleEn": "UAC-0190 · PLUGGYAPE messenger lure",
+  "titleUk": "UAC-0190 · PLUGGYAPE: приманка в месенджері",
+  "descriptionEn": "A double-extension lure starts an inert Python stage, derives a bounded device ID, creates a temporary Run value, and sends loopback JSON.",
+  "descriptionUk": "Приманка з подвійним розширенням запускає інертний Python-етап, обчислює ID, створює тимчасове Run-значення й надсилає JSON на loopback.",
+  "limitationsEn": "No messenger access, VM checks, Pastebin, remote MQTT/WebSocket, or arbitrary code execution.",
+  "limitationsUk": "Без доступу до месенджера, перевірок VM, Pastebin, віддаленого MQTT/WebSocket чи довільного коду.",
+  "sourceUrl": "https://cert.gov.ua/article/6286942",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "python.exe",
+    "cmd.exe"
+  ],
+  "flow": [
+    {
+      "id": "lure",
+      "titleEn": "Double-extension file",
+      "titleUk": "Файл з подвійним розширенням",
+      "noteEn": "Creates a local .pdf.exe-style benign lure.",
+      "noteUk": "Створює безпечну локальну приманку .pdf.exe."
+    },
+    {
+      "id": "python",
+      "titleEn": "PLUGGYAPE Python stage",
+      "titleUk": "Python-етап PLUGGYAPE",
+      "noteEn": "Runs a fixed local Python script.",
+      "noteUk": "Виконує фіксований локальний Python-скрипт."
+    },
+    {
+      "id": "identity",
+      "titleEn": "Device identity",
+      "titleUk": "Ідентифікатор пристрою",
+      "noteEn": "Hashes limited host fields; returns no raw identifiers.",
+      "noteUk": "Хешує обмежені поля хоста без сирих значень у звіті."
+    },
+    {
+      "id": "persistence",
+      "titleEn": "Run value and beacon",
+      "titleUk": "Run-значення та сигнал",
+      "noteEn": "Creates/removes HKCU Run and sends local JSON.",
+      "noteUk": "Створює/видаляє HKCU Run і надсилає локальний JSON."
+    }
+  ]
+}
