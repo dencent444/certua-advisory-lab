@@ -1,0 +1,16 @@
+{
+  "id":"uac-0185-windows","clusterId":"UAC-0185","platform":"windows",
+  "titleEn":"UAC-0185 · LNK → HTA → staged archive","titleUk":"UAC-0185 · LNK → HTA → архів",
+  "descriptionEn":"A local shortcut launches an inert HTA, which starts PowerShell to unpack a disguised local archive and run an inert batch stage.",
+  "descriptionUk":"Локальний ярлик запускає інертний HTA, який викликає PowerShell для розпакування локального замаскованого архіву й інертного BAT-етапу.",
+  "limitationsEn":"No phishing delivery, remote download, real Startup persistence, MESHAGENT, or credential access. All artifacts are module-owned and removed after the run.",
+  "limitationsUk":"Без фішингової доставки, віддаленого завантаження, реального автозапуску, MESHAGENT чи доступу до облікових даних. Усі файли належать модулю й видаляються після запуску.",
+  "sourceUrl":"https://cert.gov.ua/article/6281632","sourceLabel":"CERT-UA",
+  "requires":["mshta.exe","powershell.exe","Compress-Archive","Expand-Archive"],
+  "flow":[
+    {"id":"lnk","titleEn":"Shortcut lure","titleUk":"Ярлик-приманка","noteEn":"Creates a local LNK to the inert HTA.","noteUk":"Створює локальний LNK для інертного HTA."},
+    {"id":"hta","titleEn":"HTA handoff","titleUk":"Перехід через HTA","noteEn":"Invokes mshta, then PowerShell from the HTA.","noteUk":"Запускає mshta, далі PowerShell з HTA."},
+    {"id":"unpack","titleEn":"Disguised ZIP extraction","titleUk":"Розпакування замаскованого ZIP","noteEn":"Expands a module-owned ZIP copied to Front.png.","noteUk":"Розпаковує власний ZIP, скопійований у Front.png."},
+    {"id":"batch","titleEn":"Inert batch stage","titleUk":"Інертний BAT-етап","noteEn":"Runs Main.bat; update.exe is an inert text marker.","noteUk":"Виконує Main.bat; update.exe — інертний текстовий маркер."}
+  ]
+}
