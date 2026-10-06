@@ -1,0 +1,16 @@
+{
+  "id":"uac-0082-linux","clusterId":"UAC-0082","platform":"linux",
+  "titleEn":"UAC-0082 · ORCSHRED → AWFULSHRED","titleUk":"UAC-0082 · ORCSHRED → AWFULSHRED",
+  "descriptionEn":"Linux worm-to-wiper sequence: route discovery, bounded SSH reachability, a temporary user timer/service, and wiping module-owned decoys.",
+  "descriptionUk":"Ланцюг Linux-хробака й вайпера: маршрути, обмежена перевірка SSH, тимчасовий користувацький таймер/сервіс і стирання файлів модуля.",
+  "limitationsEn":"No lateral movement, credentials, production service changes, real disk access, or reboot. User cron and a user systemd manager are required.",
+  "limitationsUk":"Без бокового переміщення, облікових даних, змін робочих сервісів, доступу до дисків чи перезавантаження. Потрібні користувацький cron і systemd.",
+  "sourceUrl":"https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/","sourceLabel":"ESET Research / CERT-UA",
+  "requires":["python3","crontab","systemd-run","systemctl","shred"],
+  "flow":[
+    {"id":"routes","titleEn":"ORCSHRED route discovery","titleUk":"ORCSHRED: маршрути","noteEn":"Reads local route table; probes only loopback SSH.","noteUk":"Читає локальні маршрути; перевіряє SSH лише на loopback."},
+    {"id":"schedule","titleEn":"ORCSHRED cron launch","titleUk":"ORCSHRED: завдання cron","noteEn":"Adds then removes a marked user crontab entry for /usr/bin/true.","noteUk":"Додає й видаляє позначений запис crontab користувача для /usr/bin/true."},
+    {"id":"services","titleEn":"AWFULSHRED HTTP stop","titleUk":"AWFULSHRED: зупинка HTTP","noteEn":"Starts and stops only a module-owned transient HTTP user service.","noteUk":"Запускає й зупиняє лише тимчасовий HTTP-сервіс власного модуля."},
+    {"id":"wipe","titleEn":"AWFULSHRED priority wipe","titleUk":"AWFULSHRED: пріоритетне стирання","noteEn":"Shreds decoys under module-owned boot/home/var-log directories.","noteUk":"Стирає тестові файли у власних каталогах boot/home/var-log."}
+  ]
+}
