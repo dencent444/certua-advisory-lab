@@ -1,41 +1,108 @@
-# Panel
+# Panel operations
 
-The panel uses React/TypeScript, a C++20 HTTP server, and PostgreSQL. Build and run from the repository root:
+The [project README](../README.md) covers the first install and a test run. This file records the network boundaries, agent lifecycle, and optional WireGuard setup.
 
-```sh
-PANEL_DATABASE_URL='host=/var/run/postgresql dbname=certua_panel user=certua_panel' ./panel/run 4173
-```
+## Listeners and trust boundaries
 
-The launcher needs Node.js/npm, g++, OpenSSH, libcurl, OpenSSL, nlohmann/json headers, and `libpq.so.5`. It installs frontend packages with `npm ci` when needed. After creating a PostgreSQL database, initialize its one admin account on the first run:
+| Listener | Bind address | Purpose |
+| --- | --- | --- |
+| Admin | `127.0.0.1:<admin-port>` | Login, UI, and authenticated APIs |
+| Agent | `0.0.0.0:<agent-port>` | Heartbeats, WireGuard enrollment, fixed client download |
+| Linux modules | `PANEL_MODULE_BIND:PANEL_MODULE_PORT` when configured | Module files for the private WireGuard channel |
 
-```sh
-PANEL_DATABASE_URL='host=/var/run/postgresql dbname=certua_panel user=certua_panel' \
-PANEL_BOOTSTRAP_USER=admin PANEL_BOOTSTRAP_PASSWORD='<at least 16 characters>' \
-./panel/run 4173
-```
-
-The admin panel listens on `127.0.0.1:<port>`. Every page, asset, and admin API requires a login session; only `/login` and `POST /api/login` are public on that listener. PostgreSQL stores a single salted password hash and the agent heartbeat records. The Creds tab shows and changes this one account; changing it signs out all sessions.
-
-A separate agent listener binds to `0.0.0.0` on the next port, or on `PANEL_AGENT_PORT` when set. It accepts heartbeats, WireGuard peer enrollment, and serves a fixed WireGuard client binary; panel pages, assets, admin APIs, and module scripts return 404 there. Module scripts are served only on the private WireGuard address `10.145.20.1:4182`. The server checks external reachability of the agent port through HackMyIP. If the port is not open, it launches a Pinggy HTTPS tunnel to **the agent listener only**. Free Pinggy URLs can change after reconnection.
-
-Connect supplies Linux Bash and Windows PowerShell install commands. On Linux, run the command as a normal user with systemd; it creates `~/.local/share/certua-agent/agent.sh`, downloads and hash-checks the WireGuard userspace client, enables a user service, and enables linger (using `sudo` when needed) so the service survives logout and starts after reboot. The Linux agent needs Bash, curl, OpenSSL, and standard core utilities; `uac-0145-linux` also needs Python 3. To stop and remove it, run `systemctl --user disable --now certua-agent.service`, remove `~/.config/systemd/user/certua-agent.service` and `~/.local/share/certua-agent`, then run `systemctl --user daemon-reload`.
-
-On Windows, run the PowerShell command as the user who should own the agent. It installs a `CertUaAgent` scheduled task, starts it immediately, and starts it again when that user logs on. To remove it, run `Unregister-ScheduledTask -TaskName CertUaAgent -Confirm:$false` and delete `%LOCALAPPDATA%\CertUaAgent`.
-
-Both agents sign each heartbeat locally with HMAC-SHA256 and send it every 10 seconds. Every minute they include OS, architecture, CPU thread count, memory, and uptime; the panel shows these in Agents. The key is stored in PostgreSQL and never sent to the agent listener. Expired and repeated heartbeats are rejected; agents seen in the last 45 seconds appear in Connect and Agents. Disconnect in Agents marks the agent disabled in PostgreSQL. On its next heartbeat, the Linux agent removes its user systemd unit and exits; the Windows agent unregisters its scheduled task and exits. Test instances remain local to the current browser session.
-
-Modules live in `panel/modules/<id>/` with `manifest.json` and `run.sh` for Linux or `run.ps1` for Windows. Optional Linux `stage.sh` is served through the private WireGuard listener. The ID uses lowercase letters, digits, and hyphens. The server reads modules from the directory next to `dist/`; `/api/modules` lists them and `/api/tasks` records runs in PostgreSQL. The Linux agent verifies the signed task, opens a temporary WireGuard tunnel, downloads and checks the SHA-256 of `run.sh`, executes it as the agent user, and returns bounded evidence. The Windows agent verifies the signed task and the SHA-256 of an inline `run.ps1` before executing it as the agent user. Existing Windows installations must be reinstalled from the new Connect command to receive task execution. Review each script before adding it: a module runs with the selected test user's permissions.
-
-Starting a scenario opens a verbosity selector. `standard` records queue, dispatch, and outcome; `detailed` adds signed agent milestones; `trace` also records key and hash checks. After confirmation, the panel opens Attacks for that run. The timeline and graph use persistent PostgreSQL events exposed by the admin-only `/api/task-events?task=<id>` API and refresh while the run progresses. Agent milestones are sent as signed heartbeats; these event heartbeats never claim another queued task. Final evidence adds the second-stage and file-survey confirmations. The timeline records when each event reached the server; final evidence does not reconstruct the exact time of an internal module step. Existing installed Linux agents need the updated installer to emit detailed and trace milestones; standard server events still appear for older agents.
-
-To write a module, follow [the porting pipeline](modules/PIPELINE.md) and [selection register](modules/SELECTION.md). Each manifest records its UAC ID, OS, source, dependencies, bilingual limitations, and module-specific stages. The Linux server wrapper checks `requires` before simulation; Windows scripts check dependencies themselves. A missing dependency is reported as a failed task. `run.sh` receives a private temporary work directory as `$1`, an optional `stage.sh` URL as `$2`, and a local HTTP proxy into WireGuard as `$3`. `run.ps1` receives the temporary work directory as its first argument. Both write compact `result.json` evidence and the agent removes the work directory afterward. [coverage.json](modules/coverage.json) counts runnable scenarios and distinct UAC IDs separately.
-
-`uac-0145-linux` is a safe behavioral emulation of the CERT-UA UAC-0145 Linux SopraVPN chain. It establishes a real WireGuard session to the VPS, fetches code inside it, and executes a harmless second stage. That stage surveys **metadata only** for regular files readable by the agent account, including an `other` category, and reports counts and possible byte volume. It checks common data roots first, then the rest of `/`, without following symlinks or traversing virtual system directories. The 100,000-file or 20-second limit sets `truncated: true`, so a limited result is a lower bound. File contents are not read or transferred. The observed Linux second-stage payload was not disclosed by CERT-UA; this impact survey is a separate hypothesis informed by other UAC-0145 reports, not an attribution to the SopraVPN payload. Task completion reports execution, not an EDR detection verdict. A Windows-only sensor cannot report Linux process activity.
-
-The VPS deployment uses `/opt/cert-ua-panel` and `certua-panel.service`, with admin port `4180` and agent port `4181`. Access the admin panel through SSH forwarding:
+`./panel/run <admin-port>` chooses the next port for agents; `PANEL_AGENT_PORT` overrides it. On the example VPS service, the ports are `4180` and `4181`. The admin listener stays on loopback. Use SSH forwarding for remote access:
 
 ```sh
-ssh -i ~/.ssh/vps_key -L 4180:127.0.0.1:4180 root@85.155.190.234
+ssh -L 4180:127.0.0.1:4180 <ssh-user>@<vps-host>
 ```
 
-Then open `http://127.0.0.1:4180/login`. The VPS Nginx sites for the existing web app and CDN are not used by this panel.
+The server checks the agent port through HackMyIP. When the port is not publicly reachable, it starts a Pinggy HTTPS tunnel to that listener. The generated URL may change after a reconnect. The tunnel does not carry the admin UI or admin APIs. A direct agent connection uses HTTP; HMAC authenticates its messages but does not encrypt them. Generated install commands currently use either the detected public IP or the Pinggy URL, with no custom endpoint setting.
+
+With `PANEL_MODULE_BIND` set, the agent listener does not serve module scripts. Without it, Linux module downloads fall back to the agent listener. The private channel below is recommended for a VPS that will run Linux scenarios.
+
+## Private Linux module channel
+
+The current agent protocol uses WireGuard interface `certua-lab`, internal address `10.145.20.1/24`, and module endpoint `10.145.20.1:4182`. These are fixed lab network settings, independent of the VPS public IP; check that the subnet does not overlap your network. Changing it requires code changes. The public WireGuard endpoint must currently be an IPv4 address and UDP port.
+
+1. Install WireGuard tools on the VPS. Generate a server key pair:
+
+   ```sh
+   sudo install -d -m 0700 /etc/wireguard
+   sudo sh -c 'umask 077; wg genkey > /etc/wireguard/certua-lab.key'
+   sudo sh -c 'wg pubkey < /etc/wireguard/certua-lab.key > /etc/wireguard/certua-lab.pub'
+   ```
+
+   Create `/etc/wireguard/certua-lab.conf` with mode `0600`, using the contents of `certua-lab.key` as `PrivateKey`:
+
+   ```ini
+   [Interface]
+   Address = 10.145.20.1/24
+   ListenPort = 51820
+   PrivateKey = <server-private-key>
+   ```
+
+   Start the interface and allow UDP `51820` through the VPS firewall. Keep the private key out of the repository:
+
+   ```sh
+   sudo systemctl enable --now wg-quick@certua-lab.service
+   ```
+
+2. Build the userspace client shipped with this repository. It needs the Go version declared in [`agent/wg-client/go.mod`](agent/wg-client/go.mod):
+
+   ```sh
+   cd /opt/cert-ua-panel/agent/wg-client
+   sudo -u certua_panel go build -o ../../build/wg-client .
+   ```
+
+3. Run `sudo systemctl edit certua-panel.service` and add these variables, replacing the two placeholders with your server's public key and IPv4 address:
+
+   ```ini
+   [Service]
+   Environment="PANEL_WG_SERVER_PUBLIC_KEY=<server-public-key>"
+   Environment="PANEL_WG_PUBLIC_ENDPOINT=<vps-public-ip>:51820"
+   Environment="PANEL_MODULE_BIND=10.145.20.1"
+   Environment="PANEL_MODULE_PORT=4182"
+   Environment="PANEL_MODULE_ENDPOINT=http://10.145.20.1:4182/api/agent/module"
+   ```
+
+   Restart the panel service. New Linux agent install commands now include the server key and endpoint; the agent checks both during enrollment.
+
+4. Install [`deploy/certua-wg-sync.service`](deploy/certua-wg-sync.service) and [`deploy/certua-wg-sync.timer`](deploy/certua-wg-sync.timer), then enable the timer:
+
+   ```sh
+   sudo install -m 0644 /opt/cert-ua-panel/deploy/certua-wg-sync.service /etc/systemd/system/
+   sudo install -m 0644 /opt/cert-ua-panel/deploy/certua-wg-sync.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now certua-wg-sync.timer
+   ```
+
+   The sync script reads enrolled peers from PostgreSQL and updates `certua-lab`. Its packaged defaults expect the `certua_panel` OS user, the `certua_panel` database, and the `/opt/cert-ua-panel` layout used in the project README.
+
+If Linux agents were installed before WireGuard was enabled, reinstall them using a fresh command from `Connect` so they receive the new endpoint and client hash.
+
+## Agent lifecycle
+
+`Connect` produces an install command for Linux or Windows. Run it as the account that should own the agent. Linux requires Bash, curl, OpenSSL, standard command-line utilities, and a systemd user session; its installer enables linger so the service survives logout. The UAC-0145 Linux module also needs Python 3. Windows installs a `CertUaAgent` scheduled task for the current user. Older Windows installs need a fresh `Connect` command to receive task execution support.
+
+Agents send a signed heartbeat every 10 seconds and host details once per minute. The server accepts a host as online if it has been seen within 45 seconds. `Disconnect` disables the agent in PostgreSQL; the agent removes its own service or task on the next heartbeat. UI test-instance entries are browser-session state, while agent identities, tasks, and events live in PostgreSQL.
+
+If an agent cannot contact the server to receive `Disconnect`, remove it locally. On Linux, disable `certua-agent.service` with `systemctl --user disable --now`, remove `~/.config/systemd/user/certua-agent.service` and `~/.local/share/certua-agent`, then run `systemctl --user daemon-reload`. On Windows, unregister the `CertUaAgent` task and remove `%LOCALAPPDATA%\CertUaAgent`.
+
+## Modules and evidence
+
+Each folder under [`modules/`](modules) has a `manifest.json` and a platform script: `run.sh` for Linux or `run.ps1` for Windows. The server reads manifests when `/api/modules` is requested. The Linux agent checks the task signature, downloads the script, and verifies its SHA-256 before running it. The Windows agent verifies the signed task and hash of the script included in the heartbeat response.
+
+The module checks its declared dependencies before the simulated chain starts. It runs with the agent user's permissions in a temporary directory and returns a compact `result.json` with stage results. The agent removes the directory after collecting evidence. `Tasks` and `Attacks` read persisted PostgreSQL events. Event timestamps are server receipt times; completion is not an EDR verdict.
+
+The UAC-0145 Linux scenario surveys file **metadata** to estimate what a process with the agent user's access could reach. It does not read or transmit file contents. The 100,000-file and 20-second limits can make the count a lower bound; the survey is a lab impact hypothesis, not a published behavior of the original second stage.
+
+Use the [selection register](modules/SELECTION.md) and [porting pipeline](modules/PIPELINE.md) before adding a module:
+
+```sh
+python3 panel/modules/validate.py --run
+python3 panel/modules/coverage.py --write
+```
+
+The validator checks manifests and script syntax. It runs compatible Linux modules locally when their dependencies are present. A Windows host is needed for runtime testing; installing `pwsh` on Linux only enables PowerShell syntax parsing.
+
+The bundled [`deploy/install-release.sh`](deploy/install-release.sh) was written for an existing installation and names services that may not exist on another VPS. Use the manual service setup in the project README for a first install; adapt the release script before using it elsewhere.
