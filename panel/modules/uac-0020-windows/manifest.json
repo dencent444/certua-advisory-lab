@@ -1,0 +1,48 @@
+{
+  "id": "uac-0020-windows",
+  "clusterId": "UAC-0020",
+  "platform": "windows",
+  "titleEn": "UAC-0020 · CHM → SPECTR → FIRMACHAGENT",
+  "titleUk": "UAC-0020 · CHM → SPECTR → FIRMACHAGENT",
+  "descriptionEn": "An unpacked CHM HTML stand-in launches PowerShell, stages decoy plugin files, and runs two temporary scheduled tasks.",
+  "descriptionUk": "HTML-замінник вмісту CHM запускає PowerShell, готує тестові файли плагінів і два тимчасові завдання.",
+  "limitationsEn": "No executable CHM, Office data collection, real DLL loader, browser secrets, or exfiltration.",
+  "limitationsUk": "Без виконуваного CHM, збору даних Office, справжнього DLL-лоадера, секретів браузера чи витоку.",
+  "sourceUrl": "https://cert.gov.ua/article/6280422",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "powershell.exe",
+    "Register-ScheduledTask",
+    "Compress-Archive"
+  ],
+  "flow": [
+    {
+      "id": "chm",
+      "titleEn": "CHM HTML content",
+      "titleUk": "HTML-вміст CHM",
+      "noteEn": "Creates local lure HTML, not a compiled CHM.",
+      "noteUk": "Створює локальний HTML, не скомпільований CHM."
+    },
+    {
+      "id": "shell",
+      "titleEn": "PowerShell chain",
+      "titleUk": "Ланцюг PowerShell",
+      "noteEn": "Runs an inert child stage.",
+      "noteUk": "Виконує інертний дочірній етап."
+    },
+    {
+      "id": "plugins",
+      "titleEn": "SPECTR plugin staging",
+      "titleUk": "Підготовка плагінів SPECTR",
+      "noteEn": "Creates module-owned DLL-named markers and decoys.",
+      "noteUk": "Створює власні DLL-маркери та тестові файли."
+    },
+    {
+      "id": "tasks",
+      "titleEn": "Dual task persistence",
+      "titleUk": "Два завдання закріплення",
+      "noteEn": "Creates, runs, and removes two user tasks.",
+      "noteUk": "Створює, запускає й видаляє два користувацькі завдання."
+    }
+  ]
+}
