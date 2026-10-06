@@ -1,0 +1,16 @@
+{
+  "id": "uac-0002-linux", "clusterId": "UAC-0002", "platform": "linux",
+  "titleEn": "UAC-0002 · industrial Linux intrusion", "titleUk": "UAC-0002 · вторгнення в промисловий Linux",
+  "descriptionEn": "Host-bound LOADGRIP staging, own-child ptrace, a local PHP artifact, and a request through the lab tunnel in one chain.",
+  "descriptionUk": "Прив’язаний до хоста етап LOADGRIP, ptrace власного процесу, локальний PHP-артефакт і запит через лабораторний тунель в одному ланцюгу.",
+  "limitationsEn": "The PHP endpoint is inert; no foreign process, credentials, industrial software, or external C2 is touched. This does not prove EDR detection.",
+  "limitationsUk": "PHP-обробник інертний; чужі процеси, облікові дані, промислове ПЗ та зовнішній C2 не зачіпаються. Це не доводить спрацювання EDR.",
+  "sourceUrl": "https://cert.gov.ua/article/6278706", "sourceLabel": "CERT-UA / SSSCIP",
+  "requires": ["python3", "php", "curl"],
+  "flow": [
+    {"id":"binding","titleEn":"Host-bound stage","titleUk":"Прив’язка до хоста","noteEn":"Writes and checks a host-bound inert blob.","noteUk":"Записує та перевіряє інертний блок з прив’язкою до хоста."},
+    {"id":"inject","titleEn":"LOADGRIP process trace","titleUk":"Трасування процесу LOADGRIP","noteEn":"PTRACE_TRACEME on a module-owned child only.","noteUk":"PTRACE_TRACEME лише на дочірньому процесі модуля."},
+    {"id":"web","titleEn":"PHP artifact and request","titleUk":"PHP-артефакт і запит","noteEn":"Serves an inert PHP file on loopback and requests it.","noteUk":"Подає інертний PHP-файл на loopback і виконує запит."},
+    {"id":"tunnel","titleEn":"Private tunnel request","titleUk":"Запит через приватний тунель","noteEn":"Requests the lab-owned fixed response over the agent tunnel.","noteUk":"Отримує фіксовану лабораторну відповідь через тунель агента."}
+  ]
+}
