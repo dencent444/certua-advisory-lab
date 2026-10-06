@@ -105,4 +105,4 @@ python3 panel/modules/coverage.py --write
 
 The validator checks manifests and script syntax. It runs compatible Linux modules locally when their dependencies are present. A Windows host is needed for runtime testing; installing `pwsh` on Linux only enables PowerShell syntax parsing.
 
-The bundled [`deploy/install-release.sh`](deploy/install-release.sh) was written for an existing installation and names services that may not exist on another VPS. Use the manual service setup in the project README for a first install; adapt the release script before using it elsewhere.
+Use the root [`install.sh`](../install.sh) for a fresh Debian or Ubuntu VPS. The bundled [`deploy/install-release.sh`](deploy/install-release.sh) targets an existing installation and names services that may not exist on another VPS; adapt it before using it elsewhere.

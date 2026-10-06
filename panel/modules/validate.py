@@ -18,6 +18,7 @@ REQUIRED = ("titleEn", "titleUk", "descriptionEn", "descriptionUk",
 
 
 def validate_module(folder: Path, run: bool) -> None:
+    """Check the manifest and script, then optionally run supported modules in isolation."""
     manifest = json.loads((folder / "manifest.json").read_text())
     assert manifest["id"] == folder.name and ID.fullmatch(folder.name), folder
     assert manifest["clusterId"] == "UAC-" + folder.name.split("-")[1], folder

@@ -43,7 +43,6 @@ try:
         if added:
             shown = cron('-l')
             schedule = shown.returncode == 0 and marker in shown.stdout
-    # Transient service is owned by the agent user and serves only loopback.
     listener = socket.socket()
     listener.bind(('127.0.0.1', 0))
     port = listener.getsockname()[1]

@@ -14,6 +14,7 @@ REFERENCE = {
 
 
 def build() -> dict:
+    """Count runnable modules by cluster without treating a module as a new UAC ID."""
     clusters: dict[str, dict] = {}
     for file in sorted(ROOT.glob("uac-*/manifest.json")):
         module = json.loads(file.read_text())

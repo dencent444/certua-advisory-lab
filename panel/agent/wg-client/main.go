@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
+// keygen writes a restricted private key and its public counterpart for agent enrollment.
 func keygen(privatePath, publicPath string) error {
 	private, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
@@ -32,6 +33,8 @@ func keygen(privatePath, publicPath string) error {
 	return os.WriteFile(publicPath, []byte(base64.StdEncoding.EncodeToString(private.PublicKey().Bytes())), 0600)
 }
 
+// proxy exposes one local HTTP endpoint and forwards module GETs over the userspace tunnel.
+// The route and upstream host are fixed so callers cannot use it as a general proxy.
 func proxy(privatePath, clientIP, serverPublic, endpoint, portPath string) error {
 	private, err := os.ReadFile(privatePath)
 	if err != nil {

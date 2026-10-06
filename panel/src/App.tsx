@@ -249,6 +249,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController()
+    // Logs come from the server for the active tab; the browser only refreshes their view.
     async function loadLogs() {
       try {
         const response = await fetch(`/api/logs?tab=${page}&lang=${language}`, { signal: controller.signal, cache: 'no-store' })
@@ -368,6 +369,7 @@ function App() {
     return () => { active = false; window.clearInterval(timer) }
   }, [page, currentTask?.id])
 
+  // Open the new task in Attacks immediately, then replace the optimistic row with server data.
   async function launchModule() {
     const selected = modules.find((module) => module.id === selectedModuleId) ?? modules[0]
     const agent = connectedAgents.find((item) => item.id === launchAgentId)

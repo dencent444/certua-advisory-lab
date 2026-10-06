@@ -33,6 +33,7 @@ const copy: Record<string, [string, string, string, string]> = {
   dependency_missing: ['Dependency missing', 'Preflight stopped the scenario before its actions ran.', 'Немає залежності', 'Попередня перевірка зупинила сценарій до його дій.'],
 }
 
+// Phase events use the module manifest so each UAC chain keeps its own stage names.
 export function eventLabel(code: string, language: Language, modules: Module[] = []): string {
   if (code.startsWith('phase_')) {
     const stage = modules.flatMap((module) => module.flow ?? []).find((item) => 'phase_' + item.id === code)

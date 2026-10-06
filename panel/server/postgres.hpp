@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-// Small libpq loader so the panel can be compiled before libpq is installed.
-// At runtime, PANEL_DATABASE_URL and libpq.so.5 are required.
+// Load libpq at runtime; the build needs no PostgreSQL headers or linker dependency.
+// Queries still require PANEL_DATABASE_URL and libpq.so.5 on the running host.
 class Postgres {
   using Connect = void* (*)(const char*);
   using Status = int (*)(const void*);
@@ -69,6 +69,7 @@ class Postgres {
   Postgres(const Postgres&) = delete;
   Postgres& operator=(const Postgres&) = delete;
 
+  // Open a connection per call and bind all supplied values as SQL parameters.
   std::vector<std::vector<std::string>> query(
       const std::string& sql, const std::vector<std::string>& parameters = {}) const {
     void* connection = connect_(connection_string_.c_str());

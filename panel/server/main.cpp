@@ -86,6 +86,7 @@ bool valid_module_id(const std::string& id) {
          });
 }
 
+// Accept only manifests whose ID, platform, script, and dependency names match the module contract.
 std::optional<json> load_module(const std::string& id) {
   if (!valid_module_id(id)) return std::nullopt;
   const fs::path root = modules_dir / id;
@@ -111,6 +112,7 @@ std::optional<json> load_module(const std::string& id) {
   return manifest;
 }
 
+// The Linux preflight becomes part of the bytes hashed for the agent's signed task.
 std::string module_file(const std::string& id, const std::string& name) {
   const auto manifest = load_module(id);
   if (!manifest || (name != "run.sh" && name != "run.ps1" && name != "stage.sh")) return "";
@@ -172,6 +174,7 @@ void append_log(const std::string& tab, const std::string& level,
   if (entries.size() > 50) entries.resize(50);
 }
 
+// Each stage code is recorded once per task, even when an agent retries delivery.
 void task_event(const std::string& task_id, const std::string& code,
                 const std::string& source, const std::string& level) {
   database->query("INSERT INTO public.panel_task_events (task_id, code, source, level) "
@@ -194,6 +197,7 @@ size_t curl_write(char* data, size_t size, size_t count, void* context) {
   return size * count;
 }
 
+// Probe this host's public agent port directly; proxies would report their own reachability.
 ProbeResult check_public_port() {
   ProbeResult result;
   result.checked_at = now_utc();
@@ -211,7 +215,6 @@ ProbeResult check_public_port() {
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_USERAGENT, "cert-ua-panel/0.1");
-  // A proxy would test the proxy's public IP instead of this machine.
   curl_easy_setopt(curl, CURLOPT_PROXY, "");
   curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
   const CURLcode code = curl_easy_perform(curl);
@@ -317,6 +320,7 @@ bool check_account(const std::string& username, const std::string& password) {
          CRYPTO_memcmp(account.hash.data(), actual.data(), actual.size()) == 0;
 }
 
+// Apply additive schema changes and create the sole admin account only on first initialization.
 void initialize_database() {
   database = std::make_unique<Postgres>();
   database->query("CREATE TABLE IF NOT EXISTS public.panel_admin ("
@@ -410,6 +414,7 @@ void replace_all(std::string& value, const std::string& needle, const std::strin
   }
 }
 
+// Build the Windows install command from the current agent endpoint and shared signing key.
 std::string agent_command(const std::string& base_url) {
   if (!valid_agent_base_url(base_url)) return "";
   std::string command = R"PANEL($ErrorActionPreference = 'Stop'
@@ -511,6 +516,7 @@ Write-Host 'CertUaAgent scheduled task started.'
   return command;
 }
 
+// Embed private module transport settings only when the server has a WireGuard helper.
 std::string linux_agent_command(const std::string& base_url) {
   if (!valid_agent_base_url(base_url)) return "";
   if (!wg_server_public_key.empty() && wg_client_sha.empty()) return "";
@@ -737,6 +743,7 @@ PANEL_INSTALL)PANEL";
   return command;
 }
 
+// Accept a heartbeat only within the clock window and with a matching HMAC over its exact fields.
 bool valid_signature(const std::string& id, const std::string& name, int64_t timestamp,
                      const std::string& nonce, const std::string& signature,
                      const std::string& info) {
@@ -773,6 +780,7 @@ bool valid_signature(const std::string& id, const std::string& name, int64_t tim
   return CRYPTO_memcmp(expected.data(), signature.data(), expected.size()) == 0;
 }
 
+// Publish an agent install command for the reachable direct port or the active HTTPS tunnel.
 json connection_status() {
   std::lock_guard lock(state_mutex);
   const std::string base_url = probe.state == "open" && !probe.host.empty()
@@ -889,6 +897,7 @@ void publish_tunnel(const std::string& state, const std::string& url = "") {
   }
 }
 
+// Reprobe every minute and keep the agent-only Pinggy tunnel alive while direct access is closed.
 void manage_connection() {
   pid_t child = -1;
   int debugger_port = 0;
@@ -1042,6 +1051,7 @@ std::string login_page(bool ukrainian) {
          "</script></html>";
 }
 
+// Route requests by listener so agent traffic cannot reach the admin UI or authenticated APIs.
 void handle_client(int client, bool agent_listener, bool module_listener = false) {
   std::string request;
   char buffer[2048];

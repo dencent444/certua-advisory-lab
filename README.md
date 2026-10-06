@@ -37,7 +37,21 @@ Open `http://127.0.0.1:4173/login`. The bootstrap credentials create the one adm
 
 ## Install on a Linux VPS
 
-This example uses the paths and service account in [`panel/deploy/certua-panel.service`](panel/deploy/certua-panel.service). Install the same build dependencies as above, plus systemd and PostgreSQL on the VPS. The optional WireGuard channel currently expects a public IPv4 endpoint.
+On a fresh Debian or Ubuntu VPS (amd64 or arm64), clone the repository with an SSH key that has read access and run the root installer:
+
+```sh
+git clone git@github.com:dencent444/certua-advisory-lab.git
+cd certua-advisory-lab
+sudo ./install.sh
+```
+
+The repository is currently private, so an unauthenticated raw-file URL cannot download the script. If you download `install.sh` separately through an authenticated GitHub client, run `sudo bash install.sh`; the script clones the repository using the invoking user's Git credentials. Set `PANEL_REPO_URL` for a different remote.
+
+It asks for the first admin password, installs the build dependencies and PostgreSQL, builds the panel, and starts `certua-panel.service`. By default it also creates the `certua-lab` WireGuard interface and peer sync timer for Linux modules. It checks ports `4180`–`4182`, the lab subnet, and existing service files before installing. It does not configure Nginx, your CDN, or firewall. Allow UDP `51820` if using WireGuard; TCP `4181` can stay closed if the automatic Pinggy agent tunnel is working. Keep the admin port private and use the SSH forward shown below.
+
+For a VPS without a public IPv4 address, run `sudo PANEL_INSTALL_WIREGUARD=0 ./install.sh`. Set `PANEL_PUBLIC_IP` when automatic public IP detection is wrong. Run `./install.sh --help` for the full set of inputs. The installer stops if `/opt/cert-ua-panel` is already present; it is for a first install, not updates.
+
+The following steps are the manual setup for hosts that need a different package manager or service layout. This example uses the paths and service account in [`panel/deploy/certua-panel.service`](panel/deploy/certua-panel.service). Install the same build dependencies as above, plus systemd and PostgreSQL on the VPS. The optional WireGuard channel currently expects a public IPv4 endpoint.
 
 1. Create the `certua_panel` OS user, PostgreSQL role, and database. From the repository root, copy `panel/` to the service directory. The service uses PostgreSQL's local Unix socket, so the OS and database user names match:
 
