@@ -1,0 +1,48 @@
+{
+  "id": "uac-0244-windows",
+  "clusterId": "UAC-0244",
+  "platform": "windows",
+  "titleEn": "UAC-0244 · LNK → HTA → AGINGFLY",
+  "titleUk": "UAC-0244 · LNK → HTA → AGINGFLY",
+  "descriptionEn": "A local shortcut launches an inert HTA, a temporary task, and an agent-owned loader process.",
+  "descriptionUk": "Локальний ярлик запускає інертний HTA, тимчасове завдання та процес лоадера, що належить агенту.",
+  "limitationsEn": "CERT-UA merged former UAC-0247 into UAC-0244. No shellcode injection, lateral movement, or external control.",
+  "limitationsUk": "CERT-UA об’єднала UAC-0247 з UAC-0244. Без інжекції шелкоду, бокового переміщення чи зовнішнього керування.",
+  "sourceUrl": "https://cert.gov.ua/article/6288271",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "mshta.exe",
+    "cmd.exe",
+    "Register-ScheduledTask"
+  ],
+  "flow": [
+    {
+      "id": "shortcut",
+      "titleEn": "LNK delivery",
+      "titleUk": "Доставка LNK",
+      "noteEn": "Creates and opens a local shortcut.",
+      "noteUk": "Створює та відкриває локальний ярлик."
+    },
+    {
+      "id": "hta",
+      "titleEn": "HTA launch",
+      "titleUk": "Запуск HTA",
+      "noteEn": "Runs an inert HTA in mshta.",
+      "noteUk": "Виконує інертний HTA через mshta."
+    },
+    {
+      "id": "task",
+      "titleEn": "Scheduled loader",
+      "titleUk": "Завдання лоадера",
+      "noteEn": "Creates, starts, and removes a lab task.",
+      "noteUk": "Створює, запускає та видаляє тестове завдання."
+    },
+    {
+      "id": "loader",
+      "titleEn": "AGINGFLY stand-in",
+      "titleUk": "Замінник AGINGFLY",
+      "noteEn": "Starts an owned child process; no foreign injection.",
+      "noteUk": "Запускає власний дочірній процес без інжекції."
+    }
+  ]
+}
