@@ -1,0 +1,47 @@
+{
+  "id": "uac-0001-windows",
+  "clusterId": "UAC-0001",
+  "platform": "windows",
+  "titleEn": "UAC-0001 · Office lure → COM hijack → COVENANT",
+  "titleUk": "UAC-0001 · Office-приманка → COM hijack → COVENANT",
+  "descriptionEn": "A decoy document path leads to a local LNK, a disposable HKCU COM registration, and a temporary task.",
+  "descriptionUk": "Шлях тестового документа веде до локального LNK, тимчасового COM-запису HKCU та завдання.",
+  "limitationsEn": "No Office exploit, WebDAV server, real explorer restart, shellcode, or COVENANT.",
+  "limitationsUk": "Без експлойту Office, WebDAV-сервера, перезапуску explorer, шелкоду чи COVENANT.",
+  "sourceUrl": "https://cert.gov.ua/article/6287250",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "powershell.exe",
+    "Register-ScheduledTask"
+  ],
+  "flow": [
+    {
+      "id": "document",
+      "titleEn": "Document lure",
+      "titleUk": "Документ-приманка",
+      "noteEn": "Creates an inert document and local shortcut.",
+      "noteUk": "Створює інертний документ і локальний ярлик."
+    },
+    {
+      "id": "com",
+      "titleEn": "COM registration",
+      "titleUk": "COM-реєстрація",
+      "noteEn": "Creates and removes a unique HKCU CLSID.",
+      "noteUk": "Створює й видаляє унікальний CLSID у HKCU."
+    },
+    {
+      "id": "task",
+      "titleEn": "OneDriveHealth-style task",
+      "titleUk": "Завдання в стилі OneDriveHealth",
+      "noteEn": "Starts and removes a temporary user task.",
+      "noteUk": "Запускає й видаляє тимчасове завдання."
+    },
+    {
+      "id": "payload",
+      "titleEn": "Inert DLL / image",
+      "titleUk": "Інертні DLL / зображення",
+      "noteEn": "Writes module-owned markers without injection.",
+      "noteUk": "Записує власні маркери без інжекції."
+    }
+  ]
+}
