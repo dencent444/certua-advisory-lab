@@ -1,0 +1,15 @@
+{
+  "id":"uac-0063-windows","clusterId":"UAC-0063","platform":"windows",
+  "titleEn":"UAC-0063 · HATVIBE → CHERRYSPY","titleUk":"UAC-0063 · HATVIBE → CHERRYSPY",
+  "descriptionEn":"Inert HTA launched by a temporary task, then a local Python stage in a module-owned directory.",
+  "descriptionUk":"Інертний HTA, запущений тимчасовим завданням, і локальний Python-етап у каталозі модуля.",
+  "limitationsEn":"No Office macro, HFS exploitation, remote control, malicious .pyd, or external network access. The stage needs Python installed on the test host.",
+  "limitationsUk":"Без макросу Office, експлуатації HFS, віддаленого керування, шкідливого .pyd чи зовнішньої мережі. На тестовому хості потрібен Python.",
+  "sourceUrl":"https://cert.gov.ua/article/6280129","sourceLabel":"CERT-UA",
+  "requires":["mshta.exe","python.exe","Register-ScheduledTask"],
+  "flow":[
+    {"id":"hta","titleEn":"HATVIBE HTA artifact","titleUk":"HATVIBE: HTA-артефакт","noteEn":"Writes an inert HTA in the work directory.","noteUk":"Створює інертний HTA в робочому каталозі."},
+    {"id":"task","titleEn":"Scheduled HTA launch","titleUk":"Запуск HTA за розкладом","noteEn":"Runs the HTA through a temporary scheduled task and removes it.","noteUk":"Запускає HTA через тимчасове завдання та видаляє його."},
+    {"id":"python","titleEn":"CHERRYSPY Python stage","titleUk":"CHERRYSPY: етап Python","noteEn":"Runs an inert local Python marker; no .pyd payload.","noteUk":"Виконує інертний локальний Python-маркер без .pyd коду."}
+  ]
+}
