@@ -6,24 +6,64 @@
     "sourceUrl": "https://cip.gov.ua/en/faqs/cyber-threat-overview-and-defense-strategies-in-2025-cert-ua-s-experience"
   },
   "coverage": {
-    "linuxModules": 16,
-    "distinctUacIds": 3
+    "runnableScenarios": 16,
+    "linuxScenarios": 3,
+    "windowsScenarios": 13,
+    "distinctUacIds": 16
   },
   "clusters": [
     {
-      "id": "UAC-0002",
+      "id": "UAC-0001",
       "sources": [
-        "https://cert.gov.ua/article/6278706",
-        "https://cip.gov.ua/services/cm/api/attachment/download?id=65898"
+        "https://cert.gov.ua/article/6287250"
       ],
       "modules": [
-        "uac-0002-biasboat-linux",
-        "uac-0002-biasboat-message-linux",
-        "uac-0002-loadgrip-linux",
-        "uac-0002-php-artifacts-linux",
-        "uac-0002-pivotnacci-local-linux",
-        "uac-0002-regeorg-http-linux",
-        "uac-0002-weevely-http-linux"
+        "uac-0001-windows"
+      ]
+    },
+    {
+      "id": "UAC-0002",
+      "sources": [
+        "https://cert.gov.ua/article/6278706"
+      ],
+      "modules": [
+        "uac-0002-linux"
+      ]
+    },
+    {
+      "id": "UAC-0010",
+      "sources": [
+        "https://cert.gov.ua/article/18365"
+      ],
+      "modules": [
+        "uac-0010-windows"
+      ]
+    },
+    {
+      "id": "UAC-0020",
+      "sources": [
+        "https://cert.gov.ua/article/6280422"
+      ],
+      "modules": [
+        "uac-0020-windows"
+      ]
+    },
+    {
+      "id": "UAC-0057",
+      "sources": [
+        "https://cert.gov.ua/article/6315762"
+      ],
+      "modules": [
+        "uac-0057-windows"
+      ]
+    },
+    {
+      "id": "UAC-0063",
+      "sources": [
+        "https://cert.gov.ua/article/6280129"
+      ],
+      "modules": [
+        "uac-0063-windows"
       ]
     },
     {
@@ -32,14 +72,7 @@
         "https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/"
       ],
       "modules": [
-        "uac-0082-awfulshred-dd-linux",
-        "uac-0082-awfulshred-disks-linux",
-        "uac-0082-awfulshred-linux",
-        "uac-0082-awfulshred-priority-linux",
-        "uac-0082-orcshred-cron-linux",
-        "uac-0082-orcshred-linux",
-        "uac-0082-orcshred-loopback-linux",
-        "uac-0082-orcshred-routes-linux"
+        "uac-0082-linux"
       ]
     },
     {
@@ -49,6 +82,78 @@
       ],
       "modules": [
         "uac-0145-linux"
+      ]
+    },
+    {
+      "id": "UAC-0185",
+      "sources": [
+        "https://cert.gov.ua/article/6281632"
+      ],
+      "modules": [
+        "uac-0185-windows"
+      ]
+    },
+    {
+      "id": "UAC-0190",
+      "sources": [
+        "https://cert.gov.ua/article/6286942"
+      ],
+      "modules": [
+        "uac-0190-windows"
+      ]
+    },
+    {
+      "id": "UAC-0200",
+      "sources": [
+        "https://cert.gov.ua/article/6279561"
+      ],
+      "modules": [
+        "uac-0200-windows"
+      ]
+    },
+    {
+      "id": "UAC-0212",
+      "sources": [
+        "https://cert.gov.ua/article/6282517"
+      ],
+      "modules": [
+        "uac-0212-windows"
+      ]
+    },
+    {
+      "id": "UAC-0244",
+      "sources": [
+        "https://cert.gov.ua/article/6288271"
+      ],
+      "modules": [
+        "uac-0244-windows"
+      ]
+    },
+    {
+      "id": "UAC-0252",
+      "sources": [
+        "https://cert.gov.ua/article/6287707"
+      ],
+      "modules": [
+        "uac-0252-windows"
+      ]
+    },
+    {
+      "id": "UAC-0255",
+      "sources": [
+        "https://cert.gov.ua/article/6288047"
+      ],
+      "modules": [
+        "uac-0255-windows"
+      ]
+    },
+    {
+      "id": "UAC-0277",
+      "sources": [
+        "https://cert.gov.ua/article/6319983"
+      ],
+      "modules": [
+        "uac-0277-windows"
       ]
     }
   ]
