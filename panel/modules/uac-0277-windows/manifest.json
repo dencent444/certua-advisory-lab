@@ -1,0 +1,48 @@
+{
+  "id": "uac-0277-windows",
+  "clusterId": "UAC-0277",
+  "platform": "windows",
+  "titleEn": "UAC-0277 · ClickFix → LUNEXSTEALER",
+  "titleUk": "UAC-0277 · ClickFix → LUNEXSTEALER",
+  "descriptionEn": "A local ClickFix lure launches PowerShell, a bounded msiexec process, and an inert staged payload.",
+  "descriptionUk": "Локальна приманка ClickFix запускає PowerShell, обмежений процес msiexec та інертний етап.",
+  "limitationsEn": "No compromised website, real MSI installation, driver, browser extension, or data theft.",
+  "limitationsUk": "Без зламаного сайту, справжнього встановлення MSI, драйвера, розширення чи викрадення даних.",
+  "sourceUrl": "https://cert.gov.ua/article/6319983",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "powershell.exe",
+    "msiexec.exe",
+    "cmd.exe"
+  ],
+  "flow": [
+    {
+      "id": "lure",
+      "titleEn": "ClickFix lure",
+      "titleUk": "Приманка ClickFix",
+      "noteEn": "Local HTML and copied command text.",
+      "noteUk": "Локальний HTML і текст команди."
+    },
+    {
+      "id": "shell",
+      "titleEn": "PowerShell launch",
+      "titleUk": "Запуск PowerShell",
+      "noteEn": "Runs an inert child command.",
+      "noteUk": "Виконує інертну дочірню команду."
+    },
+    {
+      "id": "msi",
+      "titleEn": "MSI process",
+      "titleUk": "Процес MSI",
+      "noteEn": "Starts msiexec help only; no package is installed.",
+      "noteUk": "Лише запускає довідку msiexec без інсталяції."
+    },
+    {
+      "id": "stage",
+      "titleEn": "Inert payload stage",
+      "titleUk": "Інертний етап",
+      "noteEn": "Creates module-owned package and marker.",
+      "noteUk": "Створює пакет і маркер модуля."
+    }
+  ]
+}
