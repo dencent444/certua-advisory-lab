@@ -1,0 +1,49 @@
+{
+  "id": "uac-0255-windows",
+  "clusterId": "UAC-0255",
+  "platform": "windows",
+  "titleEn": "UAC-0255 · AGEWHEEZE false protection tool",
+  "titleUk": "UAC-0255 · AGEWHEEZE: фальшивий захист",
+  "descriptionEn": "A local protection-tool archive stages an inert executable, a temporary scheduled task, and a loopback WebSocket handshake.",
+  "descriptionUk": "Локальний архів «засобу захисту» готує інертний EXE, тимчасове завдання та WebSocket-рукостискання на loopback.",
+  "limitationsEn": "No real RAT, credential access, privilege escalation, screen capture, or remote C2.",
+  "limitationsUk": "Без справжнього RAT, доступу до облікових даних, підвищення привілеїв, екрана чи віддаленого C2.",
+  "sourceUrl": "https://cert.gov.ua/article/6288047",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "cmd.exe",
+    "Compress-Archive",
+    "Expand-Archive",
+    "Register-ScheduledTask"
+  ],
+  "flow": [
+    {
+      "id": "archive",
+      "titleEn": "Protection-tool archive",
+      "titleUk": "Архів «захисту»",
+      "noteEn": "Creates and extracts a local decoy ZIP.",
+      "noteUk": "Створює та розпаковує локальний ZIP."
+    },
+    {
+      "id": "stage",
+      "titleEn": "AppData-style staging",
+      "titleUk": "Підготовка в стилі AppData",
+      "noteEn": "Copies a benign executable into the work directory.",
+      "noteUk": "Копіює безпечний EXE в робочий каталог."
+    },
+    {
+      "id": "task",
+      "titleEn": "SvcHelper task",
+      "titleUk": "Завдання SvcHelper",
+      "noteEn": "Runs then removes a temporary task.",
+      "noteUk": "Запускає й видаляє тимчасове завдання."
+    },
+    {
+      "id": "beacon",
+      "titleEn": "WebSocket handshake",
+      "titleUk": "WebSocket-рукостискання",
+      "noteEn": "Exchanges a fixed handshake on loopback.",
+      "noteUk": "Обмінюється фіксованим рукостисканням на loopback."
+    }
+  ]
+}
