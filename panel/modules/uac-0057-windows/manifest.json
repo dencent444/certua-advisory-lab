@@ -1,0 +1,47 @@
+{
+  "id": "uac-0057-windows",
+  "clusterId": "UAC-0057",
+  "platform": "windows",
+  "titleEn": "UAC-0057 · OYSTERFRESH → OYSTERSHUCK → OYSTERBLUES",
+  "titleUk": "UAC-0057 · OYSTERFRESH → OYSTERSHUCK → OYSTERBLUES",
+  "descriptionEn": "A WScript lure places an encoded inert stage in HKCU, decodes it, profiles the host, and sends a fixed loopback HTTP request.",
+  "descriptionUk": "Приманка WScript записує кодований інертний етап до HKCU, декодує його, збирає профіль та надсилає фіксований HTTP-запит на loopback.",
+  "limitationsEn": "No external C2, downloaded code, eval, real browser data, or Cobalt Strike.",
+  "limitationsUk": "Без зовнішнього C2, завантаженого коду, eval, справжніх даних браузера чи Cobalt Strike.",
+  "sourceUrl": "https://cert.gov.ua/article/6315762",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "cscript.exe",
+    "powershell.exe"
+  ],
+  "flow": [
+    {
+      "id": "script",
+      "titleEn": "OYSTERFRESH script",
+      "titleUk": "Скрипт OYSTERFRESH",
+      "noteEn": "Executes an inert JScript through cscript.",
+      "noteUk": "Виконує інертний JScript через cscript."
+    },
+    {
+      "id": "registry",
+      "titleEn": "Encoded HKCU stage",
+      "titleUk": "Кодований етап HKCU",
+      "noteEn": "Writes and removes a unique lab registry value.",
+      "noteUk": "Записує й видаляє унікальне значення реєстру."
+    },
+    {
+      "id": "decode",
+      "titleEn": "OYSTERSHUCK decode",
+      "titleUk": "Декодування OYSTERSHUCK",
+      "noteEn": "Reverses lab text and decodes ROT13/URL encoding.",
+      "noteUk": "Декодує тестовий текст у зворотному порядку, ROT13 та URL."
+    },
+    {
+      "id": "beacon",
+      "titleEn": "OYSTERBLUES profile",
+      "titleUk": "Профіль OYSTERBLUES",
+      "noteEn": "Sends bounded host metadata to loopback HTTP.",
+      "noteUk": "Надсилає обмежені метадані хоста на loopback HTTP."
+    }
+  ]
+}
