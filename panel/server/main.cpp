@@ -90,11 +90,12 @@ std::optional<json> load_module(const std::string& id) {
   if (!valid_module_id(id)) return std::nullopt;
   const fs::path root = modules_dir / id;
   std::ifstream manifest_file(root / "manifest.json");
-  std::ifstream run_file(root / "run.sh");
-  if (!manifest_file || !run_file) return std::nullopt;
+  if (!manifest_file) return std::nullopt;
   const auto manifest = json::parse(manifest_file, nullptr, false);
-  if (!manifest.is_object() || manifest.value("id", "") != id ||
-      manifest.value("platform", "") != "linux") return std::nullopt;
+  if (!manifest.is_object() || manifest.value("id", "") != id) return std::nullopt;
+  const std::string platform = manifest.value("platform", "");
+  if (platform != "linux" && platform != "windows") return std::nullopt;
+  if (!fs::is_regular_file(root / (platform == "linux" ? "run.sh" : "run.ps1"))) return std::nullopt;
   if (manifest.contains("requires")) {
     if (!manifest["requires"].is_array()) return std::nullopt;
     for (const auto& requirement : manifest["requires"]) {
@@ -103,7 +104,7 @@ std::optional<json> load_module(const std::string& id) {
       if (command.empty() || command.size() > 32 ||
           !std::all_of(command.begin(), command.end(), [](unsigned char ch) {
             return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                   (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
+                   (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.';
           })) return std::nullopt;
     }
   }
@@ -112,7 +113,10 @@ std::optional<json> load_module(const std::string& id) {
 
 std::string module_file(const std::string& id, const std::string& name) {
   const auto manifest = load_module(id);
-  if (!manifest || (name != "run.sh" && name != "stage.sh")) return "";
+  if (!manifest || (name != "run.sh" && name != "run.ps1" && name != "stage.sh")) return "";
+  const std::string platform = manifest->value("platform", "");
+  if ((platform == "linux" && name == "run.ps1") ||
+      (platform == "windows" && name != "run.ps1")) return "";
   std::ifstream file(modules_dir / id / name, std::ios::binary);
   if (!file) return "";
   const std::string content(std::istreambuf_iterator<char>(file), {});
@@ -425,13 +429,16 @@ for ($i = 0; $i -lt $keyBytes.Length; $i++) {
 }
 $hmac = [System.Security.Cryptography.HMACSHA256]::new($keyBytes)
 $lastInfo = 0
+$pendingResult = $null
 while ($true) {
   try {
     $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $nonce = [guid]::NewGuid().ToString('N')
     $name = $env:COMPUTERNAME
     $info = ''
-    if ($ts - $lastInfo -ge 60) {
+    if ($pendingResult) {
+      $info = @{ taskResult = $pendingResult } | ConvertTo-Json -Compress -Depth 8
+    } elseif ($ts - $lastInfo -ge 60) {
       $os = Get-CimInstance Win32_OperatingSystem
       $uptime = [int64]([DateTime]::UtcNow - $os.LastBootUpTime.ToUniversalTime()).TotalSeconds
       $info = @{ os = $os.Caption; arch = $env:PROCESSOR_ARCHITECTURE; cpu = [int]$env:NUMBER_OF_PROCESSORS; memoryMiB = [int]($os.TotalVisibleMemorySize / 1024); uptimeSeconds = $uptime } | ConvertTo-Json -Compress
@@ -444,10 +451,43 @@ while ($true) {
     if ($info) { $payload.info = $info }
     $body = $payload | ConvertTo-Json -Compress
     $response = Invoke-RestMethod -Method Post -Uri '__ENDPOINT__' -ContentType 'application/json' -Body $body -TimeoutSec 20
+    if ($pendingResult) { $pendingResult = $null }
     if ($response.disconnect) {
       Unregister-ScheduledTask -TaskName 'CertUaAgent' -Confirm:$false -ErrorAction SilentlyContinue
       Remove-Item -LiteralPath $agentDir -Recurse -Force -ErrorAction SilentlyContinue
       exit 0
+    }
+    if ($response.task -and $response.module -and $response.sha256 -and $response.taskSignature -and $response.script) {
+      $signedTask = $agentId + '|' + $nonce + '|' + $response.task + '|' + $response.module + '|' + $response.sha256
+      $expectedSignature = [BitConverter]::ToString($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($signedTask))).Replace('-', '').ToLowerInvariant()
+      $scriptBytes = [Text.Encoding]::UTF8.GetBytes([string]$response.script)
+      $actualHash = [BitConverter]::ToString(([System.Security.Cryptography.SHA256]::Create()).ComputeHash($scriptBytes)).Replace('-', '').ToLowerInvariant()
+      $evidence = @{}
+      $ok = $false
+      if ($expectedSignature -eq $response.taskSignature -and $actualHash -eq $response.sha256) {
+        $workDir = Join-Path $env:TEMP ('certua-lab-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+        try {
+          $env:PANEL_VERBOSITY = [string]$response.verbosity
+          & ([scriptblock]::Create([string]$response.script)) $workDir
+          $resultFile = Join-Path $workDir 'result.json'
+          if (Test-Path -LiteralPath $resultFile) {
+            $raw = [IO.File]::ReadAllText($resultFile)
+            if ($raw.Length -le 1500) { $evidence = $raw | ConvertFrom-Json }
+          }
+          $ok = [bool]$evidence.phases -and -not $evidence.preflight -and -not $evidence.metrics.error
+          if ($evidence.phases) {
+            foreach ($phase in $evidence.phases.PSObject.Properties) {
+              if (-not $phase.Value) { $ok = $false; break }
+            }
+          }
+        } catch {
+          Write-Warning $_.Exception.Message
+        } finally {
+          Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+      }
+      $pendingResult = @{ id = [long]$response.task; ok = $ok; evidence = $evidence }
     }
   } catch {
     Write-Warning $_.Exception.Message
@@ -1182,7 +1222,7 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
                             {task_id, id, effective_ok ? "completed" : "failed", stored_result.dump()});
                         if (!updated.empty()) {
                           if (missing_dependencies) task_event(task_id, "dependency_missing", "evidence", "standard");
-                          if (effective_ok && result.contains("evidence") && result["evidence"].is_object()) {
+                          if (result.contains("evidence") && result["evidence"].is_object()) {
                             const auto& evidence = result["evidence"];
                             if (updated[0][0] != "standard") {
                               if (evidence.value("config", false)) task_event(task_id, "config_prepared", "evidence", "detailed");
@@ -1258,7 +1298,9 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
                 task_event(queued[0][0], "dispatched", "server", "standard");
                 const auto module_rows = database->query("SELECT scenario, verbosity FROM public.panel_tasks WHERE id = $1", {queued[0][0]});
                 const std::string module = module_rows[0][0];
-                const std::string script = module_file(module, "run.sh");
+                const auto manifest = load_module(module);
+                const bool windows = manifest && manifest->value("platform", "") == "windows";
+                const std::string script = module_file(module, windows ? "run.ps1" : "run.sh");
                 if (script.empty()) {
                   database->query("UPDATE public.panel_tasks SET status = 'failed', result = '{\"error\":\"module missing\"}'::jsonb WHERE id = $1", {queued[0][0]});
                   task_event(queued[0][0], "module_missing", "server", "standard");
@@ -1266,9 +1308,11 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
                 } else {
                   const std::string hash = sha256_hex(script);
                   const std::string signature = agent_hmac_hex(id + "|" + nonce + "|" + queued[0][0] + "|" + module + "|" + hash);
-                  reply(client, 200, "application/json", json{{"ok", true}, {"task", std::stoull(queued[0][0])},
-                                                             {"module", module}, {"sha256", hash}, {"verbosity", module_rows[0][1]},
-                                                             {"taskSignature", signature}}.dump());
+                  json response = {{"ok", true}, {"task", std::stoull(queued[0][0])},
+                                   {"module", module}, {"sha256", hash}, {"verbosity", module_rows[0][1]},
+                                   {"taskSignature", signature}};
+                  if (windows) response["script"] = script;
+                  reply(client, 200, "application/json", response.dump());
                 }
               }
             }
@@ -1401,17 +1445,21 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
           close(client);
           return;
         }
-        if (!load_module(module)) {
+        const auto selected_module = load_module(module);
+        if (!selected_module) {
           reply(client, 404, "application/json", R"({"error":"module not found"})");
           close(client);
           return;
         }
+        const bool windows = selected_module->value("platform", "") == "windows";
         const auto rows = database->query(
             "INSERT INTO public.panel_tasks (agent_id, scenario, verbosity) "
             "SELECT id, $2, $3 FROM public.panel_agents "
             "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
-            "AND info->>'os' = 'Linux' RETURNING id", {id, module, verbosity});
-        if (rows.empty()) reply(client, 404, "application/json", R"({"error":"Linux agent unavailable"})");
+            "AND ($4 = 'windows' AND info->>'os' LIKE 'Microsoft Windows%' "
+            "OR $4 = 'linux' AND info->>'os' = 'Linux') RETURNING id",
+            {id, module, verbosity, windows ? "windows" : "linux"});
+        if (rows.empty()) reply(client, 404, "application/json", R"({"error":"compatible agent unavailable"})");
         else {
           task_event(rows[0][0], "queued", "server", "standard");
           append_log("tasks", "INFO", module + " queued for " + id, module + " поставлено в чергу для " + id);

@@ -123,6 +123,11 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
+function agentSupports(agent: Agent, module: Module): boolean {
+  const os = agent.info?.os ?? ''
+  return module.platform === 'linux' ? os === 'Linux' : os.startsWith('Microsoft Windows')
+}
+
 function Surface({ title, meta, children, className = '' }: {
   title: string
   meta?: string
@@ -364,8 +369,10 @@ function App() {
   }, [page, currentTask?.id])
 
   async function launchModule() {
-    const moduleId = selectedModuleId ?? modules[0]?.id
-    if (!moduleId || !launchAgentId) return
+    const selected = modules.find((module) => module.id === selectedModuleId) ?? modules[0]
+    const agent = connectedAgents.find((item) => item.id === launchAgentId)
+    if (!selected || !agent || !agentSupports(agent, selected)) return
+    const moduleId = selected.id
     setLaunchError('')
     setLaunching(true)
     try {
@@ -514,12 +521,12 @@ function App() {
           </div> : <EmptyState title={t.noScenario} text={t.noScenarioHint} />}
         </Surface>
         <div className="launch-bar">
-          <div><span className="section-label">{t.launch}</span><p>{language === 'uk' ? 'Виберіть підключений Linux-агент' : 'Select a connected Linux agent'}</p>
-            <select value={launchAgentId} onChange={(event) => setLaunchAgentId(event.target.value)}>
+          <div><span className="section-label">{t.launch}</span><p>{language === 'uk' ? 'Виберіть підключеного агента для цієї ОС' : 'Select a connected agent for this OS'}</p>
+            <select value={selectedModule && connectedAgents.some((agent) => agent.id === launchAgentId && agentSupports(agent, selectedModule)) ? launchAgentId : ''} onChange={(event) => setLaunchAgentId(event.target.value)}>
               <option value="">{language === 'uk' ? 'Вибрати агента' : 'Select agent'}</option>
-              {connectedAgents.filter((agent) => agent.info?.os === 'Linux').map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+              {selectedModule && connectedAgents.filter((agent) => agentSupports(agent, selectedModule)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>{launchError && <p className="form-error" role="alert">{launchError}</p>}</div>
-          <button className="primary-button" type="button" disabled={!selectedModule || !launchAgentId} onClick={() => { setLaunchError(''); setLaunchOpen(true) }}>{t.launchButton} <span aria-hidden="true">↗</span></button>
+          <button className="primary-button" type="button" disabled={!selectedModule || !connectedAgents.some((agent) => agent.id === launchAgentId && agentSupports(agent, selectedModule))} onClick={() => { setLaunchError(''); setLaunchOpen(true) }}>{t.launchButton} <span aria-hidden="true">↗</span></button>
         </div>
       </div>
     )

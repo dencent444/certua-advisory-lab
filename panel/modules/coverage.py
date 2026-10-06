@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a source-linked inventory of implemented UAC Linux simulations."""
+"""Build a source-linked inventory of implemented UAC simulations."""
 
 import argparse
 import json
@@ -15,7 +15,7 @@ REFERENCE = {
 
 def build() -> dict:
     clusters: dict[str, dict] = {}
-    for file in sorted(ROOT.glob("uac-*-linux/manifest.json")):
+    for file in sorted(ROOT.glob("uac-*/manifest.json")):
         module = json.loads(file.read_text())
         cluster = clusters.setdefault(module["clusterId"], {
             "id": module["clusterId"], "sources": [], "modules": []})
@@ -25,7 +25,9 @@ def build() -> dict:
     return {
         "schemaVersion": 1,
         "reference": REFERENCE,
-        "coverage": {"linuxModules": sum(len(row["modules"]) for row in clusters.values()),
+        "coverage": {"runnableScenarios": sum(len(row["modules"]) for row in clusters.values()),
+                     "linuxScenarios": sum(1 for file in ROOT.glob("uac-*/manifest.json") if json.loads(file.read_text()).get("platform") == "linux"),
+                     "windowsScenarios": sum(1 for file in ROOT.glob("uac-*/manifest.json") if json.loads(file.read_text()).get("platform") == "windows"),
                      "distinctUacIds": len(clusters)},
         "clusters": [clusters[key] for key in sorted(clusters)],
     }
