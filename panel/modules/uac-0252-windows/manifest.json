@@ -1,0 +1,48 @@
+{
+  "id": "uac-0252-windows",
+  "clusterId": "UAC-0252",
+  "platform": "windows",
+  "titleEn": "UAC-0252 · SHADOWSNIFF / SALATSTEALER delivery",
+  "titleUk": "UAC-0252 · Доставка SHADOWSNIFF / SALATSTEALER",
+  "descriptionEn": "An offline XSS-style lure and archive stage a benign EXE; it runs and inventories only synthetic decoys.",
+  "descriptionUk": "Офлайнова XSS-приманка й архів готують безпечний EXE; він запускається та бачить лише синтетичні файли.",
+  "limitationsEn": "No real XSS, GitHub download, stealer, ransomware, or user-file access.",
+  "limitationsUk": "Без справжнього XSS, завантаження з GitHub, стілера, шифрувальника чи доступу до файлів користувача.",
+  "sourceUrl": "https://cert.gov.ua/article/6287707",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "cmd.exe",
+    "Compress-Archive",
+    "Expand-Archive"
+  ],
+  "flow": [
+    {
+      "id": "lure",
+      "titleEn": "XSS-style lure",
+      "titleUk": "XSS-подібна приманка",
+      "noteEn": "Creates a local HTML landing page.",
+      "noteUk": "Створює локальну HTML-сторінку."
+    },
+    {
+      "id": "archive",
+      "titleEn": "Archive delivery",
+      "titleUk": "Доставка архівом",
+      "noteEn": "Packs and unpacks a benign executable.",
+      "noteUk": "Пакує й розпаковує безпечний EXE."
+    },
+    {
+      "id": "execute",
+      "titleEn": "Staged EXE",
+      "titleUk": "Підготовлений EXE",
+      "noteEn": "Runs only a copied system command processor.",
+      "noteUk": "Запускає лише копію системного cmd."
+    },
+    {
+      "id": "decoys",
+      "titleEn": "Synthetic file impact",
+      "titleUk": "Синтетичні файли",
+      "noteEn": "Counts module-owned decoys without reading user data.",
+      "noteUk": "Рахує власні тестові файли без даних користувача."
+    }
+  ]
+}
