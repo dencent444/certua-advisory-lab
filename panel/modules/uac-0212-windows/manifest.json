@@ -1,0 +1,47 @@
+{
+  "id": "uac-0212-windows",
+  "clusterId": "UAC-0212",
+  "platform": "windows",
+  "titleEn": "UAC-0212 · ICS supplier LNK → Run → staging",
+  "titleUk": "UAC-0212 · Постачальник АСУТП: LNK → Run → підготовка",
+  "descriptionEn": "A supplier-themed shortcut launches a local PowerShell stage, a disposable HKCU Run value, and a bounded document copy.",
+  "descriptionUk": "Ярлик у тематиці постачальника запускає локальний PowerShell-етап, тимчасове Run-значення HKCU та обмежене копіювання документів.",
+  "limitationsEn": "UAC-0212 is a UAC-0002 subcluster. No CVE exploitation, external download, real RSYNC, or lateral movement.",
+  "limitationsUk": "UAC-0212 — субкластер UAC-0002. Без експлуатації CVE, зовнішніх завантажень, справжнього RSYNC чи бокового переміщення.",
+  "sourceUrl": "https://cert.gov.ua/article/6282517",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "powershell.exe",
+    "robocopy.exe"
+  ],
+  "flow": [
+    {
+      "id": "shortcut",
+      "titleEn": "Supplier LNK",
+      "titleUk": "Ярлик постачальника",
+      "noteEn": "Creates and opens a module-owned shortcut.",
+      "noteUk": "Створює й відкриває власний ярлик модуля."
+    },
+    {
+      "id": "powershell",
+      "titleEn": "PowerShell handoff",
+      "titleUk": "Перехід у PowerShell",
+      "noteEn": "Runs an inert local stage.",
+      "noteUk": "Виконує інертний локальний етап."
+    },
+    {
+      "id": "persistence",
+      "titleEn": "Run-key foothold",
+      "titleUk": "Закріплення Run",
+      "noteEn": "Creates and removes a unique HKCU Run value.",
+      "noteUk": "Створює й видаляє унікальне Run-значення HKCU."
+    },
+    {
+      "id": "copy",
+      "titleEn": "Document staging",
+      "titleUk": "Підготовка документів",
+      "noteEn": "Copies only synthetic files with robocopy.",
+      "noteUk": "Копіює лише синтетичні файли через robocopy."
+    }
+  ]
+}
