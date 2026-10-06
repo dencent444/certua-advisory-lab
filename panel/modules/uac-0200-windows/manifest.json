@@ -1,0 +1,49 @@
+{
+  "id": "uac-0200-windows",
+  "clusterId": "UAC-0200",
+  "platform": "windows",
+  "titleEn": "UAC-0200 · Signal lure → SFX → DarkCrystal",
+  "titleUk": "UAC-0200 · Signal-приманка → SFX → DarkCrystal",
+  "descriptionEn": "A local messenger-style archive expands VBS, BAT, and a benign EXE; the script chain runs on owned files.",
+  "descriptionUk": "Локальний архів у стилі месенджера розпаковує VBS, BAT та безпечний EXE; ланцюг запускається лише на власних файлах.",
+  "limitationsEn": "No Signal access, password-protected RAR SFX, DarkCrystal RAT, or remote control.",
+  "limitationsUk": "Без доступу до Signal, захищеного RAR SFX, DarkCrystal RAT чи віддаленого керування.",
+  "sourceUrl": "https://cert.gov.ua/article/6279561",
+  "sourceLabel": "CERT-UA",
+  "requires": [
+    "cscript.exe",
+    "cmd.exe",
+    "Compress-Archive",
+    "Expand-Archive"
+  ],
+  "flow": [
+    {
+      "id": "archive",
+      "titleEn": "Messenger archive",
+      "titleUk": "Архів із месенджера",
+      "noteEn": "Packs and unpacks local decoys.",
+      "noteUk": "Пакує й розпаковує локальні тестові файли."
+    },
+    {
+      "id": "vbs",
+      "titleEn": "VBS first stage",
+      "titleUk": "Перший етап VBS",
+      "noteEn": "Executes an inert VBScript.",
+      "noteUk": "Виконує інертний VBScript."
+    },
+    {
+      "id": "batch",
+      "titleEn": "BAT handoff",
+      "titleUk": "Перехід до BAT",
+      "noteEn": "Runs a fixed batch file.",
+      "noteUk": "Виконує фіксований BAT-файл."
+    },
+    {
+      "id": "exe",
+      "titleEn": "DarkCrystal stand-in",
+      "titleUk": "Замінник DarkCrystal",
+      "noteEn": "Runs a copied benign command processor.",
+      "noteUk": "Запускає безпечну копію cmd.exe."
+    }
+  ]
+}
