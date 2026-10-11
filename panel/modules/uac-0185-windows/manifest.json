@@ -8,9 +8,9 @@
   "sourceUrl":"https://cert.gov.ua/article/6281632","sourceLabel":"CERT-UA",
   "requires":["mshta.exe","powershell.exe","Compress-Archive","Expand-Archive"],
   "flow":[
-    {"id":"lnk","titleEn":"Shortcut lure","titleUk":"Ярлик-приманка","noteEn":"Creates a local LNK to the inert HTA.","noteUk":"Створює локальний LNK для інертного HTA."},
-    {"id":"hta","titleEn":"HTA handoff","titleUk":"Перехід через HTA","noteEn":"Invokes mshta, then PowerShell from the HTA.","noteUk":"Запускає mshta, далі PowerShell з HTA."},
-    {"id":"unpack","titleEn":"Disguised ZIP extraction","titleUk":"Розпакування замаскованого ZIP","noteEn":"Expands a module-owned ZIP copied to Front.png.","noteUk":"Розпаковує власний ZIP, скопійований у Front.png."},
-    {"id":"batch","titleEn":"Inert batch stage","titleUk":"Інертний BAT-етап","noteEn":"Runs Main.bat; update.exe is an inert text marker.","noteUk":"Виконує Main.bat; update.exe — інертний текстовий маркер."}
+    {"id":"lnk","titleEn":"Shortcut lure","titleUk":"Ярлик-приманка","noteEn":"Creates a local LNK to the inert HTA.","noteUk":"Створює локальний LNK для інертного HTA.","attack":{"id":"T1204.002","mode":"context"}},
+    {"id":"hta","titleEn":"HTA handoff","titleUk":"Перехід через HTA","noteEn":"Invokes mshta, then PowerShell from the HTA.","noteUk":"Запускає mshta, далі PowerShell з HTA.","attack":{"id":"T1218.005","mode":"emulated"}},
+    {"id":"unpack","titleEn":"Disguised ZIP extraction","titleUk":"Розпакування замаскованого ZIP","noteEn":"Expands a module-owned ZIP copied to Front.png.","noteUk":"Розпаковує власний ZIP, скопійований у Front.png.","attack":null},
+    {"id":"batch","titleEn":"Inert batch stage","titleUk":"Інертний BAT-етап","noteEn":"Runs Main.bat; update.exe is an inert text marker.","noteUk":"Виконує Main.bat; update.exe — інертний текстовий маркер.","attack":{"id":"T1059.003","mode":"emulated"}}
   ]
 }

@@ -12,9 +12,9 @@
   "sourceLabel": "CERT-UA, 17 July 2024",
   "requires": ["powershell.exe", "cmd.exe", "curl.exe", "msiexec.exe"],
   "flow": [
-    {"id":"lure","titleEn":"Procurement ZIP / PDF","titleUk":"ZIP / PDF про закупівлю","noteEn":"Creates a module-owned ZIP and PDF stand-in; no link is opened.","noteUk":"Створює власні ZIP і PDF-зразки; посилання не відкривається."},
-    {"id":"xor","titleEn":"GLUEEGG XOR stage","titleUk":"XOR-етап GLUEEGG","noteEn":"Round-trips an inert Lua marker through a 128-byte XOR key.","noteUk":"Кодує й декодує інертний Lua-маркер 128-байтним XOR-ключем."},
-    {"id":"bat","titleEn":"DROPCLUE BAT / curl","titleUk":"BAT / curl етап DROPCLUE","noteEn":"A local BAT launches curl.exe against a loopback fixture server.","noteUk":"Локальний BAT запускає curl.exe до сервера зразків на loopback."},
-    {"id":"msi","titleEn":"Installer attempt","titleUk":"Спроба запуску інсталятора","noteEn":"msiexec rejects a deliberately invalid module-owned MSI file.","noteUk":"msiexec відхиляє навмисно некоректний MSI-файл модуля."}
+    {"id":"lure","titleEn":"Procurement ZIP / PDF","titleUk":"ZIP / PDF про закупівлю","noteEn":"Creates a module-owned ZIP and PDF stand-in; no link is opened.","noteUk":"Створює власні ZIP і PDF-зразки; посилання не відкривається.","attack":{"id":"T1204.002","mode":"context"}},
+    {"id":"xor","titleEn":"GLUEEGG XOR stage","titleUk":"XOR-етап GLUEEGG","noteEn":"Round-trips an inert Lua marker through a 128-byte XOR key.","noteUk":"Кодує й декодує інертний Lua-маркер 128-байтним XOR-ключем.","attack":{"id":"T1140","mode":"emulated"}},
+    {"id":"bat","titleEn":"DROPCLUE BAT / curl","titleUk":"BAT / curl етап DROPCLUE","noteEn":"A local BAT launches curl.exe against a loopback fixture server.","noteUk":"Локальний BAT запускає curl.exe до сервера зразків на loopback.","attack":{"id":"T1059.003","mode":"emulated"}},
+    {"id":"msi","titleEn":"Installer attempt","titleUk":"Спроба запуску інсталятора","noteEn":"msiexec rejects a deliberately invalid module-owned MSI file.","noteUk":"msiexec відхиляє навмисно некоректний MSI-файл модуля.","attack":{"id":"T1218.007","mode":"context"}}
   ]
 }

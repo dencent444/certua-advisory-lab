@@ -21,28 +21,32 @@
       "titleEn": "CHM HTML content",
       "titleUk": "HTML-вміст CHM",
       "noteEn": "Creates local lure HTML, not a compiled CHM.",
-      "noteUk": "Створює локальний HTML, не скомпільований CHM."
+      "noteUk": "Створює локальний HTML, не скомпільований CHM.",
+      "attack": {"id":"T1218.001","mode":"context"}
     },
     {
       "id": "shell",
       "titleEn": "PowerShell chain",
       "titleUk": "Ланцюг PowerShell",
       "noteEn": "Runs an inert child stage.",
-      "noteUk": "Виконує інертний дочірній етап."
+      "noteUk": "Виконує інертний дочірній етап.",
+      "attack": {"id":"T1059.001","mode":"emulated"}
     },
     {
       "id": "plugins",
       "titleEn": "SPECTR plugin staging",
       "titleUk": "Підготовка плагінів SPECTR",
       "noteEn": "Creates module-owned DLL-named markers and decoys.",
-      "noteUk": "Створює власні DLL-маркери та тестові файли."
+      "noteUk": "Створює власні DLL-маркери та тестові файли.",
+      "attack": null
     },
     {
       "id": "tasks",
       "titleEn": "Dual task persistence",
       "titleUk": "Два завдання закріплення",
       "noteEn": "Creates, runs, and removes two user tasks.",
-      "noteUk": "Створює, запускає й видаляє два користувацькі завдання."
+      "noteUk": "Створює, запускає й видаляє два користувацькі завдання.",
+      "attack": {"id":"T1053.005","mode":"emulated"}
     }
   ]
 }

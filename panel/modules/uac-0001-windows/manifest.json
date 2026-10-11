@@ -20,28 +20,32 @@
       "titleEn": "Document lure",
       "titleUk": "Документ-приманка",
       "noteEn": "Creates an inert document and local shortcut.",
-      "noteUk": "Створює інертний документ і локальний ярлик."
+      "noteUk": "Створює інертний документ і локальний ярлик.",
+      "attack": {"id":"T1204.002","mode":"context"}
     },
     {
       "id": "com",
       "titleEn": "COM registration",
       "titleUk": "COM-реєстрація",
       "noteEn": "Creates and removes a unique HKCU CLSID.",
-      "noteUk": "Створює й видаляє унікальний CLSID у HKCU."
+      "noteUk": "Створює й видаляє унікальний CLSID у HKCU.",
+      "attack": {"id":"T1546.015","mode":"context"}
     },
     {
       "id": "task",
       "titleEn": "OneDriveHealth-style task",
       "titleUk": "Завдання в стилі OneDriveHealth",
       "noteEn": "Starts and removes a temporary user task.",
-      "noteUk": "Запускає й видаляє тимчасове завдання."
+      "noteUk": "Запускає й видаляє тимчасове завдання.",
+      "attack": {"id":"T1053.005","mode":"emulated"}
     },
     {
       "id": "payload",
       "titleEn": "Inert DLL / image",
       "titleUk": "Інертні DLL / зображення",
       "noteEn": "Writes module-owned markers without injection.",
-      "noteUk": "Записує власні маркери без інжекції."
+      "noteUk": "Записує власні маркери без інжекції.",
+      "attack": null
     }
   ]
 }

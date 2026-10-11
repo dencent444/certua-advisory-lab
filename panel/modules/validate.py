@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ID = re.compile(r"[a-z0-9-]{1,64}\Z")
 PHASE_ID = re.compile(r"[a-z0-9_-]{1,32}\Z")
+ATTACK_ID = re.compile(r"T[0-9]{4}(?:\.[0-9]{3})?\Z")
 REQUIRED = ("titleEn", "titleUk", "descriptionEn", "descriptionUk",
             "sourceUrl", "sourceLabel", "limitationsEn", "limitationsUk")
 
@@ -50,6 +51,11 @@ if($errors.Count){{$errors | ForEach-Object {{Write-Error $_}}; exit 1}}"""
         assert all(isinstance(stage.get(key), str) and stage[key].strip()
                    for key in ("id", "titleEn", "titleUk", "noteEn", "noteUk")), folder
         assert PHASE_ID.fullmatch(stage["id"]), folder
+        assert "attack" in stage, f"{folder}: {stage['id']} needs an ATT&CK reference or null"
+        attack = stage["attack"]
+        if attack is not None:
+            assert isinstance(attack, dict) and ATTACK_ID.fullmatch(attack.get("id", "")), folder
+            assert attack.get("mode") in ("emulated", "context"), folder
         stage_ids.append(stage["id"])
     assert len(stage_ids) == len(set(stage_ids)), folder
     if not run:

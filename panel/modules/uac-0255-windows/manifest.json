@@ -22,28 +22,32 @@
       "titleEn": "Protection-tool archive",
       "titleUk": "Архів «захисту»",
       "noteEn": "Creates and extracts a local decoy ZIP.",
-      "noteUk": "Створює та розпаковує локальний ZIP."
+      "noteUk": "Створює та розпаковує локальний ZIP.",
+      "attack": null
     },
     {
       "id": "stage",
       "titleEn": "AppData-style staging",
       "titleUk": "Підготовка в стилі AppData",
       "noteEn": "Copies a benign executable into the work directory.",
-      "noteUk": "Копіює безпечний EXE в робочий каталог."
+      "noteUk": "Копіює безпечний EXE в робочий каталог.",
+      "attack": null
     },
     {
       "id": "task",
       "titleEn": "SvcHelper task",
       "titleUk": "Завдання SvcHelper",
       "noteEn": "Runs then removes a temporary task.",
-      "noteUk": "Запускає й видаляє тимчасове завдання."
+      "noteUk": "Запускає й видаляє тимчасове завдання.",
+      "attack": {"id":"T1053.005","mode":"emulated"}
     },
     {
       "id": "beacon",
       "titleEn": "WebSocket handshake",
       "titleUk": "WebSocket-рукостискання",
       "noteEn": "Exchanges a fixed handshake on loopback.",
-      "noteUk": "Обмінюється фіксованим рукостисканням на loopback."
+      "noteUk": "Обмінюється фіксованим рукостисканням на loopback.",
+      "attack": {"id":"T1071.001","mode":"context"}
     }
   ]
 }

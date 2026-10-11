@@ -21,28 +21,32 @@
       "titleEn": "XSS-style lure",
       "titleUk": "XSS-подібна приманка",
       "noteEn": "Creates a local HTML landing page.",
-      "noteUk": "Створює локальну HTML-сторінку."
+      "noteUk": "Створює локальну HTML-сторінку.",
+      "attack": null
     },
     {
       "id": "archive",
       "titleEn": "Archive delivery",
       "titleUk": "Доставка архівом",
       "noteEn": "Packs and unpacks a benign executable.",
-      "noteUk": "Пакує й розпаковує безпечний EXE."
+      "noteUk": "Пакує й розпаковує безпечний EXE.",
+      "attack": null
     },
     {
       "id": "execute",
       "titleEn": "Staged EXE",
       "titleUk": "Підготовлений EXE",
       "noteEn": "Runs only a copied system command processor.",
-      "noteUk": "Запускає лише копію системного cmd."
+      "noteUk": "Запускає лише копію системного cmd.",
+      "attack": {"id":"T1059.003","mode":"emulated"}
     },
     {
       "id": "decoys",
       "titleEn": "Synthetic file impact",
       "titleUk": "Синтетичні файли",
       "noteEn": "Counts module-owned decoys without reading user data.",
-      "noteUk": "Рахує власні тестові файли без даних користувача."
+      "noteUk": "Рахує власні тестові файли без даних користувача.",
+      "attack": null
     }
   ]
 }

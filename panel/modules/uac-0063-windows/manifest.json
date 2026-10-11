@@ -8,8 +8,8 @@
   "sourceUrl":"https://cert.gov.ua/article/6280129","sourceLabel":"CERT-UA",
   "requires":["mshta.exe","python.exe","Register-ScheduledTask"],
   "flow":[
-    {"id":"hta","titleEn":"HATVIBE HTA artifact","titleUk":"HATVIBE: HTA-артефакт","noteEn":"Writes an inert HTA in the work directory.","noteUk":"Створює інертний HTA в робочому каталозі."},
-    {"id":"task","titleEn":"Scheduled HTA launch","titleUk":"Запуск HTA за розкладом","noteEn":"Runs the HTA through a temporary scheduled task and removes it.","noteUk":"Запускає HTA через тимчасове завдання та видаляє його."},
-    {"id":"python","titleEn":"CHERRYSPY Python stage","titleUk":"CHERRYSPY: етап Python","noteEn":"Runs an inert local Python marker; no .pyd payload.","noteUk":"Виконує інертний локальний Python-маркер без .pyd коду."}
+    {"id":"hta","titleEn":"HATVIBE HTA artifact","titleUk":"HATVIBE: HTA-артефакт","noteEn":"Writes an inert HTA in the work directory.","noteUk":"Створює інертний HTA в робочому каталозі.","attack":{"id":"T1218.005","mode":"context"}},
+    {"id":"task","titleEn":"Scheduled HTA launch","titleUk":"Запуск HTA за розкладом","noteEn":"Runs the HTA through a temporary scheduled task and removes it.","noteUk":"Запускає HTA через тимчасове завдання та видаляє його.","attack":{"id":"T1053.005","mode":"emulated"}},
+    {"id":"python","titleEn":"CHERRYSPY Python stage","titleUk":"CHERRYSPY: етап Python","noteEn":"Runs an inert local Python marker; no .pyd payload.","noteUk":"Виконує інертний локальний Python-маркер без .pyd коду.","attack":{"id":"T1059.006","mode":"emulated"}}
   ]
 }

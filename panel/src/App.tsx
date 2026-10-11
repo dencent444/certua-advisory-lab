@@ -3,11 +3,11 @@ import AttackMap, { type TaskEvent } from './AttackMap'
 
 type Page = 'main' | 'creds' | 'scenarios' | 'agents' | 'attacks'
 type Language = 'en' | 'uk'
-type Agent = { id: string; name: string; lastSeen: string; info: { os?: string; arch?: string; cpu?: number; memoryMiB?: number; uptimeSeconds?: number } }
+type Agent = { id: string; name: string; siemHost?: string; lastSeen: string; info: { os?: string; arch?: string; cpu?: number; memoryMiB?: number; uptimeSeconds?: number } }
 type ServerLog = { time: string; level: string; message: string }
 type Module = { id: string; clusterId?: string; platform: string; titleEn: string; titleUk: string; descriptionEn: string; descriptionUk: string; sourceUrl?: string; sourceLabel?: string; limitationsEn?: string; limitationsUk?: string; requires?: string[]; flow?: { id: string; titleEn: string; titleUk: string; noteEn: string; noteUk: string }[] }
 type Survey = { files: number; bytes: number; truncated: boolean; categories: Record<string, { files: number; bytes: number }> }
-type Task = { id: string; agentId: string; agentName: string; scenario: string; status: string; verbosity: 'standard' | 'detailed' | 'trace'; createdAt: string; result: { ok?: boolean; error?: string; evidence?: { config?: boolean; tunnel?: boolean; download?: boolean; executed?: boolean; stageSha256?: string; observedAt?: string; survey?: Survey; phases?: Record<string, boolean>; metrics?: Record<string, string | number | boolean>; preflight?: { ok: boolean; missing: string } } } }
+type Task = { id: string; agentId: string; agentName: string; scenario: string; status: string; verbosity: 'standard' | 'detailed' | 'trace'; createdAt: string; siem?: { state: string; host: string; checkedAt: string; error: string; graceSeconds: number; alerts: { id: string; time: string; rule: string; severity: string; host: string }[] }; result: { ok?: boolean; error?: string; evidence?: { config?: boolean; tunnel?: boolean; download?: boolean; executed?: boolean; stageSha256?: string; observedAt?: string; survey?: Survey; phases?: Record<string, boolean>; metrics?: Record<string, string | number | boolean>; preflight?: { ok: boolean; missing: string } } } }
 type ConnectionData = {
   port: number
   probe: { state: string; host: string; checkedAt: string; source: string }
@@ -150,6 +150,7 @@ function App() {
   const [modules, setModules] = useState<Module[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskCounts, setTaskCounts] = useState<{ active: number; completed: number } | null>(null)
+  const [siemStatus, setSiemStatus] = useState<{ provider: string; configured: boolean; index: string; hostFields: string[] } | null>(null)
   const [dataState, setDataState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null)
@@ -216,7 +217,25 @@ function App() {
       setAccountName(data.username)
       setUsername(data.username)
     }).catch(() => setCredentialError(t.credsUnavailable))
+    void fetch('/api/siem', { cache: 'no-store' }).then(async (response) => {
+      if (response.ok) setSiemStatus(await response.json())
+    }).catch(() => setSiemStatus(null))
   }, [page, language, t.credsUnavailable])
+
+  async function saveSiemHost(event: FormEvent<HTMLFormElement>, id: string) {
+    event.preventDefault()
+    const host = String(new FormData(event.currentTarget).get('host') ?? '').trim()
+    setAgentActionError('')
+    try {
+      const response = await fetch('/api/agents/siem-host', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, host }),
+      })
+      if (!response.ok) throw new Error('host mapping failed')
+      setConnectedAgents((agents) => agents.map((agent) => agent.id === id ? { ...agent, siemHost: host } : agent))
+    } catch {
+      setAgentActionError(language === 'uk' ? 'Не вдалося зберегти хост SIEM.' : 'Could not save the SIEM host.')
+    }
+  }
 
   useEffect(() => {
     if (page === 'attacks') { setLogs([]); setLogsState('ready'); return }
@@ -444,6 +463,11 @@ function App() {
           </form>
           {credentialError && <p className="form-error" role="alert">{credentialError}</p>}
         </Surface>
+        <Surface title="SIEM" meta="SPLUNK">
+          <div className="context-note"><span className="note-marker" aria-hidden="true" /><p>{siemStatus?.configured
+            ? (language === 'uk' ? `Моніторинг увімкнено · індекс ${siemStatus.index}. Токен зберігається лише на сервері.` : `Monitoring enabled · index ${siemStatus.index}. The token stays on the server.`)
+            : (language === 'uk' ? 'Для моніторингу задайте адресу Splunk, токен і індекс алертів у середовищі сервера.' : 'Set the Splunk URL, token, and alert index in the server environment to monitor runs.')}</p></div>
+        </Surface>
       </div>
     )
   }
@@ -590,6 +614,10 @@ function App() {
             <div className="detail-line"><span>{t.cpuThreads}</span><strong>{selectedAgent.info?.cpu ?? '—'}</strong></div>
             <div className="detail-line"><span>{t.memory}</span><strong>{selectedAgent.info?.memoryMiB != null ? `${selectedAgent.info.memoryMiB} MiB` : '—'}</strong></div>
             <div className="detail-line"><span>{t.uptime}</span><strong>{selectedAgent.info?.uptimeSeconds ?? '—'}</strong></div>
+            <form className="siem-host-form" key={selectedAgent.id} onSubmit={(event) => { void saveSiemHost(event, selectedAgent.id) }}>
+              <label htmlFor="siem-host">{language === 'uk' ? 'Ім’я хоста в SIEM' : 'SIEM asset name'}</label>
+              <div><input id="siem-host" name="host" defaultValue={selectedAgent.siemHost || selectedAgent.name} pattern="[A-Za-z0-9._-]+" maxLength={253} required /><button className="outline-button" type="submit">{language === 'uk' ? 'Зберегти' : 'Save'}</button></div>
+            </form>
             <button className="outline-button disconnect-agent" type="button" disabled={disconnectingAgentId === selectedAgent.id} onClick={() => { void disconnectAgent(selectedAgent.id) }}>{t.disconnect}</button>
             {agentActionError && <p className="form-error" role="alert">{agentActionError}</p>}
           </div> : <EmptyState title={t.noAgents} text={language === 'uk' ? 'Додайте агента через сусідню вкладку.' : 'Add an agent from the next tab.'} />}

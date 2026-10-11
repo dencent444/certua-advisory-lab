@@ -21,28 +21,32 @@
       "titleEn": "ClickFix lure",
       "titleUk": "Приманка ClickFix",
       "noteEn": "Local HTML and copied command text.",
-      "noteUk": "Локальний HTML і текст команди."
+      "noteUk": "Локальний HTML і текст команди.",
+      "attack": {"id":"T1204.004","mode":"context"}
     },
     {
       "id": "shell",
       "titleEn": "PowerShell launch",
       "titleUk": "Запуск PowerShell",
       "noteEn": "Runs an inert child command.",
-      "noteUk": "Виконує інертну дочірню команду."
+      "noteUk": "Виконує інертну дочірню команду.",
+      "attack": {"id":"T1059.001","mode":"emulated"}
     },
     {
       "id": "msi",
       "titleEn": "MSI process",
       "titleUk": "Процес MSI",
       "noteEn": "Starts msiexec help only; no package is installed.",
-      "noteUk": "Лише запускає довідку msiexec без інсталяції."
+      "noteUk": "Лише запускає довідку msiexec без інсталяції.",
+      "attack": {"id":"T1218.007","mode":"context"}
     },
     {
       "id": "stage",
       "titleEn": "Inert payload stage",
       "titleUk": "Інертний етап",
       "noteEn": "Creates module-owned package and marker.",
-      "noteUk": "Створює пакет і маркер модуля."
+      "noteUk": "Створює пакет і маркер модуля.",
+      "attack": null
     }
   ]
 }

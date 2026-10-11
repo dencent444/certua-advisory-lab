@@ -8,9 +8,9 @@
   "sourceUrl": "https://cert.gov.ua/article/6278706", "sourceLabel": "CERT-UA / SSSCIP",
   "requires": ["python3", "php", "curl"],
   "flow": [
-    {"id":"binding","titleEn":"Host-bound stage","titleUk":"Прив’язка до хоста","noteEn":"Writes and checks a host-bound inert blob.","noteUk":"Записує та перевіряє інертний блок з прив’язкою до хоста."},
-    {"id":"inject","titleEn":"LOADGRIP process trace","titleUk":"Трасування процесу LOADGRIP","noteEn":"PTRACE_TRACEME on a module-owned child only.","noteUk":"PTRACE_TRACEME лише на дочірньому процесі модуля."},
-    {"id":"web","titleEn":"PHP artifact and request","titleUk":"PHP-артефакт і запит","noteEn":"Serves an inert PHP file on loopback and requests it.","noteUk":"Подає інертний PHP-файл на loopback і виконує запит."},
-    {"id":"tunnel","titleEn":"Private tunnel request","titleUk":"Запит через приватний тунель","noteEn":"Requests the lab-owned fixed response over the agent tunnel.","noteUk":"Отримує фіксовану лабораторну відповідь через тунель агента."}
+    {"id":"binding","titleEn":"Host-bound stage","titleUk":"Прив’язка до хоста","noteEn":"Writes and checks a host-bound inert blob.","noteUk":"Записує та перевіряє інертний блок з прив’язкою до хоста.","attack":null},
+    {"id":"inject","titleEn":"LOADGRIP process trace","titleUk":"Трасування процесу LOADGRIP","noteEn":"PTRACE_TRACEME on a module-owned child only.","noteUk":"PTRACE_TRACEME лише на дочірньому процесі модуля.","attack":{"id":"T1055","mode":"context"}},
+    {"id":"web","titleEn":"PHP artifact and request","titleUk":"PHP-артефакт і запит","noteEn":"Serves an inert PHP file on loopback and requests it.","noteUk":"Подає інертний PHP-файл на loopback і виконує запит.","attack":null},
+    {"id":"tunnel","titleEn":"Private tunnel request","titleUk":"Запит через приватний тунель","noteEn":"Requests the lab-owned fixed response over the agent tunnel.","noteUk":"Отримує фіксовану лабораторну відповідь через тунель агента.","attack":null}
   ]
 }

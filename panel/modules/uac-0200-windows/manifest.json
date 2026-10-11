@@ -22,28 +22,32 @@
       "titleEn": "Messenger archive",
       "titleUk": "Архів із месенджера",
       "noteEn": "Packs and unpacks local decoys.",
-      "noteUk": "Пакує й розпаковує локальні тестові файли."
+      "noteUk": "Пакує й розпаковує локальні тестові файли.",
+      "attack": null
     },
     {
       "id": "vbs",
       "titleEn": "VBS first stage",
       "titleUk": "Перший етап VBS",
       "noteEn": "Executes an inert VBScript.",
-      "noteUk": "Виконує інертний VBScript."
+      "noteUk": "Виконує інертний VBScript.",
+      "attack": {"id":"T1059.005","mode":"emulated"}
     },
     {
       "id": "batch",
       "titleEn": "BAT handoff",
       "titleUk": "Перехід до BAT",
       "noteEn": "Runs a fixed batch file.",
-      "noteUk": "Виконує фіксований BAT-файл."
+      "noteUk": "Виконує фіксований BAT-файл.",
+      "attack": {"id":"T1059.003","mode":"emulated"}
     },
     {
       "id": "exe",
       "titleEn": "DarkCrystal stand-in",
       "titleUk": "Замінник DarkCrystal",
       "noteEn": "Runs a copied benign command processor.",
-      "noteUk": "Запускає безпечну копію cmd.exe."
+      "noteUk": "Запускає безпечну копію cmd.exe.",
+      "attack": {"id":"T1059.003","mode":"emulated"}
     }
   ]
 }

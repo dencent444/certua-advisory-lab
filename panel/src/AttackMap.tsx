@@ -3,8 +3,10 @@ import { useState } from 'react'
 type Language = 'en' | 'uk'
 export type TaskEvent = { id: string; code: string; source: string; level: string; time: string }
 type Survey = { files: number; bytes: number; truncated: boolean; categories?: Record<string, { files: number; bytes: number }> }
-type AttackTask = { id: string; agentName: string; scenario: string; status: string; verbosity: string; createdAt: string; result: { evidence?: { tunnel?: boolean; download?: boolean; executed?: boolean; survey?: Survey; phases?: Record<string, boolean>; metrics?: Record<string, string | number | boolean>; preflight?: { ok: boolean; missing: string } } } }
-type Module = { id: string; titleEn: string; titleUk: string; sourceUrl?: string; sourceLabel?: string; flow?: { id: string; titleEn: string; titleUk: string; noteEn: string; noteUk: string }[] }
+type AttackRef = { id: string; mode: 'emulated' | 'context' }
+type SiemResult = { state: string; host: string; checkedAt: string; error: string; graceSeconds: number; alerts: { id: string; time: string; rule: string; severity: string; host: string }[] }
+type AttackTask = { id: string; agentName: string; scenario: string; status: string; verbosity: string; createdAt: string; siem?: SiemResult; result: { evidence?: { tunnel?: boolean; download?: boolean; executed?: boolean; survey?: Survey; phases?: Record<string, boolean>; metrics?: Record<string, string | number | boolean>; preflight?: { ok: boolean; missing: string } } } }
+type Module = { id: string; platform?: string; titleEn: string; titleUk: string; sourceUrl?: string; sourceLabel?: string; flow?: { id: string; titleEn: string; titleUk: string; noteEn: string; noteUk: string; attack?: AttackRef | null }[] }
 
 const copy: Record<string, [string, string, string, string]> = {
   queued: ['Queued', 'Saved in PostgreSQL; waiting for the agent.', 'У черзі', 'Збережено в PostgreSQL; очікування агента.'],
@@ -31,6 +33,10 @@ const copy: Record<string, [string, string, string, string]> = {
   hash_mismatch: ['Hash mismatch', 'Downloaded module did not match its expected SHA-256.', 'Хеш не збігся', 'SHA-256 завантаженого модуля не збігся з очікуваним.'],
   execution_failed: ['Execution failed', 'Module returned a nonzero exit status.', 'Помилка виконання', 'Модуль завершився з ненульовим кодом.'],
   dependency_missing: ['Dependency missing', 'Preflight stopped the scenario before its actions ran.', 'Немає залежності', 'Попередня перевірка зупинила сценарій до його дій.'],
+  siem_watching: ['SIEM observer started', 'The companion observer is checking alerts for this host and run window.', 'SIEM-спостерігач запущений', 'Окремий спостерігач перевіряє алерти для хоста й часу запуску.'],
+  siem_alert: ['SIEM alert matched', 'At least one alert matched the host and run window; inspect the rule below.', 'Знайдено SIEM-алерт', 'Принаймні один алерт збігся за хостом і часом; перевірте правило нижче.'],
+  siem_no_alert: ['No SIEM alert found', 'The observation window ended after a successful SIEM query.', 'SIEM-алертів не знайдено', 'Період спостереження завершився після успішного запиту до SIEM.'],
+  siem_error: ['SIEM query failed', 'The observer could not verify the alert state and will retry.', 'Помилка запиту до SIEM', 'Спостерігач не зміг перевірити алерти та повторить спробу.'],
 }
 
 // Phase events use the module manifest so each UAC chain keeps its own stage names.
@@ -103,6 +109,16 @@ const uacStages = [
   { id: 'result', en: 'Lab report', uk: 'Звіт лабораторії', codes: ['completed', 'failed'] },
 ]
 
+const uacAttack: Record<string, AttackRef> = {
+  delivery: { id: 'T1105', mode: 'context' },
+  execution: { id: 'T1059.004', mode: 'emulated' },
+  exposure: { id: 'T1005', mode: 'context' },
+}
+
+function attackUrl(id: string): string {
+  return `https://attack.mitre.org/techniques/${id.replace('.', '/')}/`
+}
+
 const uacNotes: Record<string, [string, string]> = {
   dispatch: ['The agent receives and verifies a signed lab task. CERT-UA describes a fake technical assignment during recruitment; that social step is context, not an action on this host.', 'Агент отримує й перевіряє підписане лабораторне завдання. CERT-UA описує фальшиве технічне завдання під час найму; цей соціальний етап тут не виконується.'],
   peer: ['The agent registers its WireGuard public key with the lab VPS. This is the lab transport, not the modified SopraVPN client.', 'Агент реєструє публічний ключ WireGuard на лабораторному VPS. Це транспорт лабораторії, а не модифікований клієнт SopraVPN.'],
@@ -120,10 +136,11 @@ export default function AttackMap({ language, task, events, modules }: { languag
   const uac = task.scenario === 'uac-0145-linux'
   const module = modules.find((item) => item.id === task.scenario)
   const stages = module?.flow ? [
-    ...genericStages.slice(0, 4),
-    ...module.flow.map((stage) => ({ id: stage.id, en: stage.titleEn, uk: stage.titleUk, codes: ['phase_' + stage.id] })),
-    genericStages.at(-1)!,
-  ] : uac ? uacStages : genericStages
+    ...genericStages.slice(0, 4).map((stage) => ({ ...stage, attack: null as AttackRef | null })),
+    ...module.flow.map((stage) => ({ id: stage.id, en: stage.titleEn, uk: stage.titleUk, codes: ['phase_' + stage.id], attack: stage.attack ?? null })),
+    { ...genericStages.at(-1)!, attack: null },
+  ] : uac ? uacStages.map((stage) => ({ ...stage, attack: uacAttack[stage.id] ?? null }))
+    : genericStages.map((stage) => ({ ...stage, attack: null as AttackRef | null }))
   const evidence = task.result?.evidence
   const codes = new Set(events.map((event) => event.code))
   const baseDone = [codes.has('dispatched') || task.status !== 'queued', codes.has('peer_enrolled') || !!evidence?.tunnel || task.status === 'completed',
@@ -141,9 +158,22 @@ export default function AttackMap({ language, task, events, modules }: { languag
     <div className="attack-topline"><div><span className="attack-kicker">{uk ? 'ПЕРЕБІГ СЦЕНАРІЮ' : 'SCENARIO RUN'}</span><h2>{module ? (uk ? module.titleUk : module.titleEn) : task.scenario} <span>#{task.id}</span></h2></div>
       <div className="attack-controls"><span className={'attack-status status-' + task.status}>{stateLabel}</span></div></div>
     <div className="attack-meta"><span>{task.agentName}</span><span>{uk ? 'Деталізація' : 'Verbosity'}: {verbosityLabel ?? 'standard'}</span><span>{time(task.createdAt, language)}</span></div>
+    <section className="siem-panel" aria-label={uk ? 'Результат SIEM' : 'SIEM result'}>
+      <div className="siem-heading"><div><span className="attack-kicker">SIEM / SPLUNK</span><h3>{uk ? 'Спостерігач' : 'Observer'}</h3></div><span className={'siem-state state-' + (task.siem?.state ?? 'not_recorded')}>{({
+        waiting: uk ? 'Очікує агента' : 'Waiting for agent', watching: uk ? 'Моніторинг' : 'Watching',
+        alert: uk ? 'Є алерт' : 'Alert found', no_alert: uk ? 'Алертів немає' : 'No alert found',
+        error: uk ? 'Перевірка не вдалася' : 'Check failed', unconfigured: uk ? 'Не налаштовано' : 'Not configured',
+        skipped: uk ? 'Пропущено' : 'Skipped', not_recorded: uk ? 'Немає перевірки' : 'Not recorded',
+      } as Record<string, string>)[task.siem?.state ?? 'not_recorded']}</span></div>
+      <div className="siem-meta"><span>{uk ? 'Хост' : 'Host'}: {task.siem?.host || task.agentName}</span>{task.siem?.checkedAt && <span>{uk ? 'Перевірено' : 'Checked'}: {time(task.siem.checkedAt, language)}</span>}</div>
+      {task.siem?.state === 'alert' && <><p className="siem-note">{uk ? 'Збіг за хостом і часом запуску. Перевірте, чи пов’язаний алерт із симуляцією.' : 'Matched by host and run time. Confirm whether each alert came from this simulation.'}</p><div className="siem-alerts">{task.siem.alerts.map((alert) => <div className="siem-alert" key={alert.id}><strong>{alert.rule || (uk ? 'Правило без назви' : 'Unnamed rule')}</strong><span>{alert.severity || '—'} · {alert.time ? time(alert.time, language) : '—'} · {alert.id}</span></div>)}</div></>}
+      {task.siem?.state === 'no_alert' && <div className="siem-advice"><p>{uk ? `Після ${task.siem.graceSeconds} с очікування Splunk не повернув алертів для цього хоста. Це не доводить відсутність телеметрії.` : `After ${task.siem.graceSeconds}s of waiting, Splunk returned no alert for this host. This does not prove telemetry is absent.`}</p><ol><li>{uk ? 'Перевірте надходження подій за час запуску та зіставлення імені хоста з налаштованими полями алертів.' : 'Check event ingestion around the run and map the asset name to the configured alert fields.'}</li><li>{module?.platform === 'windows' ? (uk ? 'Перевірте події створення процесів, завдань і файлів у EDR або Sysmon.' : 'Inspect process, scheduled-task, and file events in EDR or Sysmon.') : (uk ? 'Перевірте події запуску процесів, мережі та файлів у EDR або auditd/eBPF.' : 'Inspect process, network, and file events in EDR or auditd/eBPF.')}</li><li>{uk ? 'Додайте правило для етапів нижче, перевірте затримку створення алерту й повторіть запуск.' : 'Add a detection rule for the stages below, check alert creation latency, and rerun.'}</li></ol>{module?.flow && <div className="siem-targets">{module.flow.slice(0, 4).map((stage) => <span key={stage.id}>{uk ? stage.titleUk : stage.titleEn}</span>)}</div>}</div>}
+      {task.siem?.state === 'error' && <p className="siem-note siem-error">{uk ? 'Результат невідомий. Перевірте адресу SIEM, права ключа й доступність індексу.' : 'Result unknown. Check the SIEM URL, API key privileges, and alert index access.'} {task.siem.error}</p>}
+      {task.siem?.state === 'unconfigured' && <p className="siem-note">{uk ? 'Налаштуйте PANEL_SIEM_URL, PANEL_SIEM_API_KEY і PANEL_SIEM_INDEX на сервері панелі перед наступним запуском.' : 'Set PANEL_SIEM_URL, PANEL_SIEM_API_KEY, and PANEL_SIEM_INDEX on the panel server before the next run.'}</p>}
+    </section>
     {uac && <div className="attack-uac-context">
       <div className="attack-uac-heading"><span className="attack-kicker">{uk ? 'КОНТЕКСТ CERT-UA · UAC-0145' : 'CERT-UA CONTEXT · UAC-0145'}</span><a href="https://cert.gov.ua/article/6318863" target="_blank" rel="noreferrer">{uk ? 'Публікація ↗' : 'Advisory ↗'}</a></div>
-      <div className="attack-uac-chain"><span>{uk ? 'Фальшивий рекрутер' : 'Fake recruiter'}</span><b aria-hidden="true">→</b><span>{uk ? 'VPN-тест / SopraVPN' : 'VPN test / SopraVPN'}</span><b aria-hidden="true">→</b><span>SymmetricKey / PostUp</span><b aria-hidden="true">→</b><span>curl / timesyncd-check</span></div>
+      <div className="attack-uac-chain"><span>{uk ? 'Фальшивий рекрутер' : 'Fake recruiter'}<a href={attackUrl('T1684.001')} target="_blank" rel="noreferrer">ATT&CK T1684.001 ↗</a></span><b aria-hidden="true">→</b><span>{uk ? 'VPN-тест / SopraVPN' : 'VPN test / SopraVPN'}<a href={attackUrl('T1204.002')} target="_blank" rel="noreferrer">ATT&CK T1204.002 ↗</a></span><b aria-hidden="true">→</b><span>SymmetricKey / PostUp<a href={attackUrl('T1059.004')} target="_blank" rel="noreferrer">ATT&CK T1059.004 ↗</a></span><b aria-hidden="true">→</b><span>curl / timesyncd-check<a href={attackUrl('T1105')} target="_blank" rel="noreferrer">ATT&CK T1105 ↗</a></span></div>
       <p>{uk ? 'Це описана CERT-UA схема. Нижче — фактичні події лабораторного запуску; модифікований клієнт і зашифрований код не виконуються.' : 'This is the chain reported by CERT-UA. Below are actual lab events; the modified client and encrypted code are not executed.'}</p>
     </div>}
     {!uac && module?.flow && <div className="attack-uac-context"><div className="attack-uac-heading"><span className="attack-kicker">{uk ? module.titleUk : module.titleEn}</span>{module.sourceUrl && <a href={module.sourceUrl} target="_blank" rel="noreferrer">{module.sourceLabel ?? 'Source'} ↗</a>}</div><p>{uk ? 'Етапи відображають підтверджені дії лабораторного модуля; це не вердикт EDR.' : 'Stages show confirmed lab-module actions; this is not an EDR verdict.'}</p></div>}
@@ -154,11 +184,13 @@ export default function AttackMap({ language, task, events, modules }: { languag
       const last = events.filter((event) => stage.codes.includes(event.code)).at(-1)
       return <button type="button" role="listitem" key={stage.id} className={'attack-node node-' + state + (focused.id === stage.id ? ' focused' : '')} aria-pressed={focused.id === stage.id} onClick={() => setFocusedId(stage.id)}>
         <span className="attack-node-number">{String(index + 1).padStart(2, '0')}</span><strong>{uk ? stage.uk : stage.en}</strong>
+        <span className={'attack-technique ' + (stage.attack?.mode === 'context' ? 'is-context' : stage.attack ? 'is-emulated' : 'is-lab')}>{stage.attack ? `ATT&CK ${stage.attack.id}` : 'LAB'}</span>
         <span className="attack-node-state">{state === 'done' ? (uk ? 'ПІДТВЕРДЖЕНО' : 'CONFIRMED') : state === 'active' ? (uk ? 'ВИКОНУЄТЬСЯ' : 'IN PROGRESS') : state === 'failed' ? (uk ? 'ЗУПИНЕНО' : 'STOPPED') : state === 'unobserved' ? (uk ? 'НЕ СПОСТЕРІГАЛОСЬ' : 'NOT OBSERVED') : (uk ? 'ОЧІКУЄ' : 'PENDING')}</span>
         <time>{last ? time(last.time, language) : '—'}</time>
       </button>
     })}</div></div>
     <div className="attack-details"><div className="attack-stage-detail"><span className="attack-kicker">{uk ? 'ВИБРАНИЙ ЕТАП' : 'SELECTED STAGE'}</span><h3>{uk ? focused.uk : focused.en}</h3>
+      <div className="attack-technique-detail">{focused.attack ? <><a href={attackUrl(focused.attack.id)} target="_blank" rel="noreferrer">MITRE ATT&CK {focused.attack.id} ↗</a><span>{focused.attack.mode === 'context' ? (uk ? 'Контекст: техніку не виконано повністю' : 'Context: technique not fully executed') : (uk ? 'Імітовано безпечною дією' : 'Emulated with a bounded action')}</span></> : <span>{uk ? 'Крок лабораторії · без відповідника ATT&CK' : 'Lab step · no ATT&CK mapping'}</span>}</div>
       {uac && <p className="attack-stage-note">{uacNotes[focused.id][uk ? 1 : 0]}</p>}
       {module?.flow?.find((stage) => stage.id === focused.id) && <p className="attack-stage-note">{uk ? module.flow.find((stage) => stage.id === focused.id)!.noteUk : module.flow.find((stage) => stage.id === focused.id)!.noteEn}</p>}
       {related.length ? related.map((event) => <div className="attack-stage-event" key={event.id}><time>{time(event.time, language)}</time><span>{eventLabel(event.code, language, modules)}</span></div>) : <p className="attack-muted">{uk ? 'Подій цього етапу ще немає.' : 'No events for this stage yet.'}</p>}</div>
@@ -168,7 +200,7 @@ export default function AttackMap({ language, task, events, modules }: { languag
         {evidence?.metrics && <div className="attack-categories">{Object.entries(evidence.metrics).map(([name, value]) => <div key={name}><span>{metricLabel(name, language)}</span><strong>{metricValue(value, language)}</strong></div>)}</div>}
         <p>{module?.flow ? (uk ? 'Завершення не є вердиктом EDR.' : 'Completion is not an EDR verdict.') : (uk ? 'Лише метадані. Вміст файлів не передавався. Завершення не є вердиктом EDR.' : 'Metadata only. File contents were not sent. Completion is not an EDR verdict.')}</p></div></div>
     <div className="attack-timeline"><div className="attack-timeline-heading"><h3>{uk ? 'Журнал виконання' : 'Execution log'}</h3><span>{events.length} {uk ? 'подій' : 'events'}</span></div>
-      {events.length ? events.map((event) => <div className="attack-timeline-row" key={event.id}><time>{time(event.time, language)}</time><span className={'attack-event-source source-' + event.source}>{uk ? ({ server: 'сервер', agent: 'агент', evidence: 'звіт' } as Record<string, string>)[event.source] ?? event.source : event.source}</span>
+      {events.length ? events.map((event) => <div className="attack-timeline-row" key={event.id}><time>{time(event.time, language)}</time><span className={'attack-event-source source-' + event.source}>{uk ? ({ server: 'сервер', agent: 'агент', evidence: 'звіт', siem: 'SIEM' } as Record<string, string>)[event.source] ?? event.source : event.source}</span>
         <div><strong>{eventLabel(event.code, language, modules)}</strong><p>{eventDetail(event.code, language, modules)}</p><code>{event.code}</code></div></div>) : <p className="attack-muted attack-no-events">{uk ? 'Очікування подій цього запуску.' : 'Waiting for events for this run.'}</p>}
     </div>
   </section>

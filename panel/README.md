@@ -88,11 +88,31 @@ Agents send a signed heartbeat every 10 seconds and host details once per minute
 
 If an agent cannot contact the server to receive `Disconnect`, remove it locally. On Linux, disable `certua-agent.service` with `systemctl --user disable --now`, remove `~/.config/systemd/user/certua-agent.service` and `~/.local/share/certua-agent`, then run `systemctl --user daemon-reload`. On Windows, unregister the `CertUaAgent` task and remove `%LOCALAPPDATA%\CertUaAgent`.
 
+## SIEM observer (Splunk)
+
+The first SIEM adapter searches a dedicated Splunk alert index. It works with Splunk Enterprise or Splunk Enterprise Security when alerts are written to a searchable index. Give the panel server a Splunk bearer token with permission to run searches and read that index. Configure the management REST API URL, typically port `8089`, on the **panel server** and restart it:
+
+```ini
+Environment="PANEL_SIEM_URL=https://<splunk-search-head>:8089"
+Environment="PANEL_SIEM_API_KEY=<splunk-bearer-token>"
+Environment="PANEL_SIEM_INDEX=<your-alert-index>"
+Environment="PANEL_SIEM_HOST_FIELDS=dest,host"
+Environment="PANEL_SIEM_GRACE_SECONDS=300"
+```
+
+The token is sent as `Authorization: Bearer` to Splunk's [search jobs REST API](https://help.splunk.com/en/splunk-enterprise/leverage-rest-apis/rest-api-reference/10.4/search-endpoints/search-endpoint-descriptions). It is never sent to an endpoint agent or returned by the admin API. For `systemd`, put the secret in a root-readable environment file instead of a unit file committed to Git. TLS verification is enabled; plain HTTP is accepted only for a local test server. All three of `PANEL_SIEM_URL`, `PANEL_SIEM_API_KEY`, and `PANEL_SIEM_INDEX` are required together. Use `notable` as the index only if your Splunk Enterprise Security deployment writes notable events there. In plain Splunk Enterprise, a saved alert can [log an event to a chosen index](https://help.splunk.com/en/splunk-cloud-platform/alert-and-respond/alerting-manual/10.6/configure-alert-actions/log-events). Set `PANEL_SIEM_HOST_FIELDS` to the fields your alert events use for the target asset; never point this observer at an index of raw telemetry, since raw events are not detection alerts.
+
+When a primary agent pulls a run, the panel creates its SIEM observation job. A dedicated server-side worker searches the configured index by asset name and time from the run start. For Enterprise Security, notable events may expose `dest` or `risk_object`; configure those fields as needed using [Splunk's notable field reference](https://help.splunk.com/en/splunk-enterprise-security-8/administer/8.3/dashboards/data-model-reference-for-dashboards-in-splunk-enterprise-security). In `Agents`, set **SIEM asset name** if it differs from the agent's hostname. The worker polls about every 10 seconds and waits five minutes after completion by default before reporting no matching alert. `PANEL_SIEM_GRACE_SECONDS` accepts 30–1800 seconds. It persists status and up to ten alert summaries in PostgreSQL. Restarting the panel resumes unfinished observation jobs.
+
+`Alert found` means an alert matched the host and time window; verify that its rule and source event belong to the simulation. `No alert found` means a completed search returned no matching alert after the grace period. Query failures show `Check failed` and are retried; they never become a no-alert verdict. The Runs page gives telemetry and rule-tuning suggestions when no alert appears. This adapter does not read raw SIEM events or prove that the sensor collected them.
+
 ## Modules and evidence
 
 Each folder under [`modules/`](modules) has a `manifest.json` and a platform script: `run.sh` for Linux or `run.ps1` for Windows. The server reads manifests when `/api/modules` is requested. The Linux agent checks the task signature, downloads the script, and verifies its SHA-256 before running it. The Windows agent verifies the signed task and hash of the script included in the heartbeat response.
 
 The module checks its declared dependencies before the simulated chain starts. It runs with the agent user's permissions in a temporary directory and returns a compact `result.json` with stage results. The agent removes the directory after collecting evidence. `Runs` reads persisted PostgreSQL events. Event timestamps are server receipt times; completion is not an EDR verdict.
+
+The run graph labels each stage with a MITRE ATT&CK technique where the lab action has a defensible match. **Emulated** means a bounded action exercises that behavior; **Context** means the stage only represents part of it. Transport, task dispatch, and unmapped artifacts display `LAB`. A technique label is a navigation aid, not evidence that the full adversary procedure ran or that a detection fired. New flow stages must declare an `attack` reference or `null`; the [porting pipeline](modules/PIPELINE.md) defines the contract.
 
 The UAC-0145 Linux scenario surveys file **metadata** to estimate what a process with the agent user's access could reach. It does not read or transmit file contents. The 100,000-file and 20-second limits can make the count a lower bound; the survey is a lab impact hypothesis, not a published behavior of the original second stage.
 

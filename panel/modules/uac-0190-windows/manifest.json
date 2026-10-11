@@ -20,28 +20,32 @@
       "titleEn": "Double-extension file",
       "titleUk": "Файл з подвійним розширенням",
       "noteEn": "Creates a local .pdf.exe-style benign lure.",
-      "noteUk": "Створює безпечну локальну приманку .pdf.exe."
+      "noteUk": "Створює безпечну локальну приманку .pdf.exe.",
+      "attack": {"id":"T1036.007","mode":"context"}
     },
     {
       "id": "python",
       "titleEn": "PLUGGYAPE Python stage",
       "titleUk": "Python-етап PLUGGYAPE",
       "noteEn": "Runs a fixed local Python script.",
-      "noteUk": "Виконує фіксований локальний Python-скрипт."
+      "noteUk": "Виконує фіксований локальний Python-скрипт.",
+      "attack": {"id":"T1059.006","mode":"emulated"}
     },
     {
       "id": "identity",
       "titleEn": "Device identity",
       "titleUk": "Ідентифікатор пристрою",
       "noteEn": "Hashes limited host fields; returns no raw identifiers.",
-      "noteUk": "Хешує обмежені поля хоста без сирих значень у звіті."
+      "noteUk": "Хешує обмежені поля хоста без сирих значень у звіті.",
+      "attack": {"id":"T1082","mode":"emulated"}
     },
     {
       "id": "persistence",
       "titleEn": "Run value and beacon",
       "titleUk": "Run-значення та сигнал",
       "noteEn": "Creates/removes HKCU Run and sends local JSON.",
-      "noteUk": "Створює/видаляє HKCU Run і надсилає локальний JSON."
+      "noteUk": "Створює/видаляє HKCU Run і надсилає локальний JSON.",
+      "attack": {"id":"T1547.001","mode":"emulated"}
     }
   ]
 }

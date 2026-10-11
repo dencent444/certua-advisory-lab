@@ -20,28 +20,32 @@
       "titleEn": "Supplier LNK",
       "titleUk": "Ярлик постачальника",
       "noteEn": "Creates and opens a module-owned shortcut.",
-      "noteUk": "Створює й відкриває власний ярлик модуля."
+      "noteUk": "Створює й відкриває власний ярлик модуля.",
+      "attack": {"id":"T1204.002","mode":"context"}
     },
     {
       "id": "powershell",
       "titleEn": "PowerShell handoff",
       "titleUk": "Перехід у PowerShell",
       "noteEn": "Runs an inert local stage.",
-      "noteUk": "Виконує інертний локальний етап."
+      "noteUk": "Виконує інертний локальний етап.",
+      "attack": {"id":"T1059.001","mode":"emulated"}
     },
     {
       "id": "persistence",
       "titleEn": "Run-key foothold",
       "titleUk": "Закріплення Run",
       "noteEn": "Creates and removes a unique HKCU Run value.",
-      "noteUk": "Створює й видаляє унікальне Run-значення HKCU."
+      "noteUk": "Створює й видаляє унікальне Run-значення HKCU.",
+      "attack": {"id":"T1547.001","mode":"emulated"}
     },
     {
       "id": "copy",
       "titleEn": "Document staging",
       "titleUk": "Підготовка документів",
       "noteEn": "Copies only synthetic files with robocopy.",
-      "noteUk": "Копіює лише синтетичні файли через robocopy."
+      "noteUk": "Копіює лише синтетичні файли через robocopy.",
+      "attack": {"id":"T1074.001","mode":"emulated"}
     }
   ]
 }

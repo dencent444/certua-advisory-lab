@@ -21,28 +21,32 @@
       "titleEn": "LNK delivery",
       "titleUk": "Доставка LNK",
       "noteEn": "Creates and opens a local shortcut.",
-      "noteUk": "Створює та відкриває локальний ярлик."
+      "noteUk": "Створює та відкриває локальний ярлик.",
+      "attack": {"id":"T1204.002","mode":"context"}
     },
     {
       "id": "hta",
       "titleEn": "HTA launch",
       "titleUk": "Запуск HTA",
       "noteEn": "Runs an inert HTA in mshta.",
-      "noteUk": "Виконує інертний HTA через mshta."
+      "noteUk": "Виконує інертний HTA через mshta.",
+      "attack": {"id":"T1218.005","mode":"emulated"}
     },
     {
       "id": "task",
       "titleEn": "Scheduled loader",
       "titleUk": "Завдання лоадера",
       "noteEn": "Creates, starts, and removes a lab task.",
-      "noteUk": "Створює, запускає та видаляє тестове завдання."
+      "noteUk": "Створює, запускає та видаляє тестове завдання.",
+      "attack": {"id":"T1053.005","mode":"emulated"}
     },
     {
       "id": "loader",
       "titleEn": "AGINGFLY stand-in",
       "titleUk": "Замінник AGINGFLY",
       "noteEn": "Starts an owned child process; no foreign injection.",
-      "noteUk": "Запускає власний дочірній процес без інжекції."
+      "noteUk": "Запускає власний дочірній процес без інжекції.",
+      "attack": null
     }
   ]
 }

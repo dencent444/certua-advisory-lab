@@ -57,6 +57,15 @@ struct TunnelStatus {
   std::string url;
 };
 
+struct SiemConfig {
+  std::string url;
+  std::string api_key;
+  std::string index;
+  std::vector<std::string> host_fields = {"dest", "host"};
+  int grace_seconds = 300;
+  bool ready() const { return !url.empty() && !api_key.empty() && !index.empty(); }
+};
+
 std::mutex state_mutex;
 std::mutex probe_mutex;
 std::map<std::string, std::vector<LogRecord>> logs;
@@ -65,6 +74,7 @@ std::map<std::string, std::chrono::steady_clock::time_point> used_nonces;
 std::map<std::string, std::chrono::steady_clock::time_point> sessions;
 ProbeResult probe;
 TunnelStatus tunnel;
+SiemConfig siem;
 std::string agent_key;
 std::string wg_server_public_key;
 std::string wg_public_endpoint;
@@ -195,6 +205,164 @@ size_t curl_write(char* data, size_t size, size_t count, void* context) {
   auto* body = static_cast<std::string*>(context);
   body->append(data, size * count);
   return size * count;
+}
+
+size_t siem_write(char* data, size_t size, size_t count, void* context) {
+  auto* body = static_cast<std::string*>(context);
+  const size_t bytes = size * count;
+  if (body->size() + bytes > 262144) return 0;
+  body->append(data, bytes);
+  return bytes;
+}
+
+std::string siem_field(const json& result, const std::string& name) {
+  if (!result.is_object() || !result.contains(name)) return "";
+  const auto& value = result[name];
+  if (value.is_string()) return value.get<std::string>().substr(0, 160);
+  if (value.is_array() && !value.empty() && value[0].is_string())
+    return value[0].get<std::string>().substr(0, 160);
+  return "";
+}
+
+bool siem_host_matches(const json& result, const std::string& field, const std::string& host) {
+  if (!result.is_object() || !result.contains(field)) return false;
+  const auto& value = result[field];
+  if (value.is_string()) return value.get<std::string>() == host;
+  if (value.is_array())
+    for (const auto& item : value)
+      if (item.is_string() && item.get<std::string>() == host) return true;
+  return false;
+}
+
+// Run a bounded, read-only Splunk search; the target agent never receives the bearer token.
+std::pair<json, std::string> splunk_alerts(const std::string& host, const std::string& start) {
+  if (host.empty() || host.size() > 253 ||
+      !std::all_of(host.begin(), host.end(), [](unsigned char ch) {
+        return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
+      })) return {json::array(), "invalid SIEM asset name"};
+  std::string filters;
+  std::string fields = "_time event_id rule_name search_name severity urgency";
+  for (const auto& field : siem.host_fields) {
+    if (!filters.empty()) filters += " OR ";
+    filters += field + "=\"" + host + "\"";
+    fields += " " + field;
+  }
+  const std::string search = "search index=" + siem.index + " (" + filters +
+      ") | sort 0 - _time | head 10 | table " + fields;
+  const std::string url = siem.url + "/services/search/jobs";
+  CURL* curl = curl_easy_init();
+  if (!curl) return {json::array(), "curl unavailable"};
+  char* encoded_search = curl_easy_escape(curl, search.c_str(), static_cast<int>(search.size()));
+  char* encoded_start = curl_easy_escape(curl, start.c_str(), static_cast<int>(start.size()));
+  if (!encoded_search || !encoded_start) {
+    if (encoded_search) curl_free(encoded_search);
+    if (encoded_start) curl_free(encoded_start);
+    curl_easy_cleanup(curl);
+    return {json::array(), "could not encode Splunk search"};
+  }
+  const std::string payload = std::string("search=") + encoded_search +
+      "&exec_mode=oneshot&output_mode=json&earliest_time=" + encoded_start + "&latest_time=now";
+  curl_free(encoded_search);
+  curl_free(encoded_start);
+  std::string body;
+  struct curl_slist* headers = nullptr;
+  headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+  const std::string authorization = "Authorization: Bearer " + siem.api_key;
+  headers = curl_slist_append(headers, authorization.c_str());
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, siem_write);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+  curl_easy_setopt(curl, CURLOPT_PROXY, "");
+  const CURLcode code = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+  if (code != CURLE_OK) return {json::array(), curl_easy_strerror(code)};
+  if (status != 200) return {json::array(), "SIEM HTTP " + std::to_string(status)};
+  const json response = json::parse(body, nullptr, false);
+  if (!response.is_object() || !response.contains("results") || !response["results"].is_array())
+    return {json::array(), "invalid SIEM search response"};
+  if (response.contains("messages") && response["messages"].is_array())
+    for (const auto& message : response["messages"])
+      if (message.is_object() && (message.value("type", "") == "WARN" ||
+                                  message.value("type", "") == "ERROR" ||
+                                  message.value("type", "") == "FATAL"))
+        return {json::array(), "Splunk search failed"};
+  json alerts = json::array();
+  bool unparseable_hit = false;
+  for (const auto& hit : response["results"]) {
+    if (!hit.is_object()) { unparseable_hit = true; continue; }
+    std::string matched_host;
+    for (const auto& field : siem.host_fields)
+      if (siem_host_matches(hit, field, host)) { matched_host = host; break; }
+    if (matched_host.empty()) { unparseable_hit = true; continue; }
+    const std::string time = siem_field(hit, "_time");
+    const std::string rule = siem_field(hit, "rule_name").empty()
+        ? siem_field(hit, "search_name") : siem_field(hit, "rule_name");
+    const std::string severity = siem_field(hit, "severity").empty()
+        ? siem_field(hit, "urgency") : siem_field(hit, "severity");
+    const std::string id = siem_field(hit, "event_id").empty() ? rule + "@" + time
+                                                            : siem_field(hit, "event_id");
+    alerts.push_back({{"id", id.substr(0, 160)},
+                      {"time", time},
+                      {"host", matched_host},
+                      {"rule", rule},
+                      {"severity", severity}});
+  }
+  if (unparseable_hit) return {json::array(), "alert fields missing or host mismatch"};
+  return {alerts, ""};
+}
+
+// The companion monitor runs on the server and survives application restarts through PostgreSQL state.
+void monitor_siem() {
+  while (!stop_requested) {
+    try {
+      const auto rows = database->query(
+          "SELECT s.task_id::text, COALESCE(a.siem_host, a.name), "
+          "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
+          "t.status, EXTRACT(EPOCH FROM now() - t.updated_at)::integer::text, s.state, "
+          "COALESCE(t.result->'evidence'->'preflight'->>'ok', '') "
+          "FROM public.panel_siem_checks s JOIN public.panel_tasks t ON t.id = s.task_id "
+          "JOIN public.panel_agents a ON a.id = t.agent_id "
+          "WHERE s.state IN ('waiting', 'watching', 'error') AND t.status <> 'queued' "
+          "AND (s.checked_at IS NULL OR s.checked_at < now() - INTERVAL '10 seconds') "
+          "ORDER BY s.task_id LIMIT 20");
+      for (const auto& row : rows) {
+        const std::string& task_id = row[0];
+        if (row[3] == "queued") continue;
+        if (row[6] == "false") {
+          database->query("UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint",
+                          {task_id});
+          continue;
+        }
+        const auto [alerts, error] = splunk_alerts(row[1], row[2]);
+        std::string state = "watching";
+        if (!error.empty()) state = "error";
+        else if (!alerts.empty()) state = "alert";
+        else if ((row[3] == "completed" || row[3] == "failed") && std::stoi(row[4]) >= siem.grace_seconds)
+          state = "no_alert";
+        database->query(
+            "UPDATE public.panel_siem_checks SET state = $2, alerts = $3::jsonb, "
+            "error = $4, checked_at = now() WHERE task_id = $1::bigint",
+            {task_id, state, alerts.dump(), error});
+        if (row[5] == "waiting" && state == "watching") task_event(task_id, "siem_watching", "siem", "standard");
+        if (state == "alert") task_event(task_id, "siem_alert", "siem", "standard");
+        if (state == "no_alert") task_event(task_id, "siem_no_alert", "siem", "standard");
+        if (state == "error" && row[5] != "error") task_event(task_id, "siem_error", "siem", "standard");
+      }
+    } catch (const std::exception& error) {
+      std::cerr << "SIEM monitor: " << error.what() << '\n';
+    }
+    for (int second = 0; second < 5 && !stop_requested; ++second)
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
 }
 
 // Probe this host's public agent port directly; proxies would report their own reachability.
@@ -333,6 +501,7 @@ void initialize_database() {
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT false");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_public_key TEXT");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_ip TEXT");
+  database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS siem_host TEXT");
   database->query("CREATE SEQUENCE IF NOT EXISTS public.panel_wg_ip_seq START 2 MAXVALUE 254");
   database->query("CREATE TABLE IF NOT EXISTS public.panel_tasks ("
                   "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES public.panel_agents(id), "
@@ -344,6 +513,10 @@ void initialize_database() {
                   "id BIGSERIAL PRIMARY KEY, task_id BIGINT NOT NULL REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
                   "code TEXT NOT NULL, source TEXT NOT NULL, level TEXT NOT NULL, "
                   "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (task_id, code))");
+  database->query("CREATE TABLE IF NOT EXISTS public.panel_siem_checks ("
+                  "task_id BIGINT PRIMARY KEY REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
+                  "state TEXT NOT NULL, alerts JSONB NOT NULL DEFAULT '[]'::jsonb, "
+                  "checked_at TIMESTAMPTZ, error TEXT)");
   database->query("CREATE TABLE IF NOT EXISTS public.panel_settings ("
                   "key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   database->query("INSERT INTO public.panel_settings (key, value) VALUES ('agent_key', $1) "
@@ -390,11 +563,12 @@ bool authenticated(const std::string& request) {
 json live_agents_unlocked() {
   json result = json::array();
   const auto rows = database->query(
-      "SELECT id, name, to_char(last_seen AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), info::text "
+      "SELECT id, name, to_char(last_seen AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), info::text, "
+      "COALESCE(siem_host, name) "
       "FROM public.panel_agents WHERE NOT disabled AND last_seen > now() - INTERVAL '45 seconds' ORDER BY name");
   for (const auto& row : rows) {
     result.push_back({{"id", row[0]}, {"name", row[1]}, {"lastSeen", row[2]},
-                      {"info", json::parse(row[3])}});
+                      {"info", json::parse(row[3])}, {"siemHost", row[4]}});
   }
   return result;
 }
@@ -1041,17 +1215,17 @@ std::string login_page(bool ukrainian) {
          "@font-face{font-family:PlexLatin;font-weight:600;src:url('/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2')}"
          "@font-face{font-family:PlexCyrillic;font-weight:400;src:url('/fonts/ibm-plex-sans-cyrillic-400-normal.woff2') format('woff2')}"
          "@font-face{font-family:PlexCyrillic;font-weight:600;src:url('/fonts/ibm-plex-sans-cyrillic-600-normal.woff2') format('woff2')}"
-         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#17212b;color:#f0f5f6;font:14px PlexLatin,sans-serif}"
+         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#17212b;color:#f0f5f6;font:15px PlexLatin,sans-serif}"
          "html[lang=uk] body{font-family:PlexCyrillic,PlexLatin,sans-serif}"
          "main{width:min(420px,100%);border:1px solid #394b58;background:#1d2933;padding:32px}"
          ".brand{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-weight:600}"
          ".brand-mark{display:block;flex:0 0 38px;width:38px;height:52px;background:url('/logo.png') center/94px 70px no-repeat}"
          "h1{font-size:22px;margin:0 0 24px;letter-spacing:-.03em}"
-         "label{display:block;margin:16px 0 7px;color:#becbd2;font-size:12px;font-weight:600}"
+         "label{display:block;margin:16px 0 7px;color:#becbd2;font-size:13px;font-weight:600}"
          "input{width:100%;height:42px;padding:8px 11px;border:1px solid #526877;border-radius:3px;background:#17232d;color:#f0f5f6;font:inherit}"
          "input:focus-visible,button:focus-visible{outline:2px solid #36c8bf;outline-offset:2px}"
-         "button{width:100%;height:42px;margin-top:24px;border:1px solid #36c8bf;border-radius:4px;background:#36c8bf;color:#11232b;font:inherit;font-size:13px;font-weight:600;cursor:pointer}"
-         "button:hover{background:#65ded4}#error{min-height:18px;color:#f2a2a8;margin-top:12px;font-size:12px}</style>"
+         "button{width:100%;height:42px;margin-top:24px;border:1px solid #36c8bf;border-radius:4px;background:#36c8bf;color:#11232b;font:inherit;font-size:14px;font-weight:600;cursor:pointer}"
+         "button:hover{background:#65ded4}#error{min-height:18px;color:#f2a2a8;margin-top:12px;font-size:13px}</style>"
          "<main><div class='brand'><span class='brand-mark' aria-hidden='true'></span><span>certua-advisory-lab</span></div><h1>" + title + "</h1>"
          "<form><label for='username'>" + username + "</label><input id='username' autocomplete='username' required>"
          "<label for='password'>" + password + "</label><input id='password' type='password' autocomplete='current-password' required>"
@@ -1318,6 +1492,10 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
               if (queued.empty()) reply(client, 200, "application/json", R"({"ok":true})");
               else {
                 task_event(queued[0][0], "dispatched", "server", "standard");
+                database->query(
+                    "INSERT INTO public.panel_siem_checks (task_id, state) VALUES ($1::bigint, $2) "
+                    "ON CONFLICT (task_id) DO NOTHING",
+                    {queued[0][0], siem.ready() ? "waiting" : "unconfigured"});
                 const auto module_rows = database->query("SELECT scenario, verbosity FROM public.panel_tasks WHERE id = $1", {queued[0][0]});
                 const std::string module = module_rows[0][0];
                 const auto manifest = load_module(module);
@@ -1325,6 +1503,7 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
                 const std::string script = module_file(module, windows ? "run.ps1" : "run.sh");
                 if (script.empty()) {
                   database->query("UPDATE public.panel_tasks SET status = 'failed', result = '{\"error\":\"module missing\"}'::jsonb WHERE id = $1", {queued[0][0]});
+                  database->query("UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint", {queued[0][0]});
                   task_event(queued[0][0], "module_missing", "server", "standard");
                   reply(client, 200, "application/json", R"({"ok":true})");
                 } else {
@@ -1478,6 +1657,31 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       close(client);
       return;
     }
+    if (path == "/api/agents/siem-host" && method == "POST") {
+      const auto body = request_body(client, request);
+      const auto payload = body ? json::parse(*body, nullptr, false) : json();
+      if (!payload.is_object() || !payload.contains("id") || !payload["id"].is_string() ||
+          !payload.contains("host") || !payload["host"].is_string()) {
+        reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
+      } else {
+        const std::string id = payload["id"].get<std::string>();
+        const std::string host = payload["host"].get<std::string>();
+        const bool valid = !id.empty() && id.size() <= 64 && !host.empty() && host.size() <= 253 &&
+            std::all_of(host.begin(), host.end(), [](unsigned char ch) {
+              return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
+            });
+        if (!valid) reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
+        else {
+          const auto rows = database->query(
+              "UPDATE public.panel_agents SET siem_host = $2 WHERE id = $1 AND NOT disabled RETURNING id",
+              {id, host});
+          if (rows.empty()) reply(client, 404, "application/json", R"({"error":"agent not found"})");
+          else reply(client, 200, "application/json", json{{"id", id}, {"host", host}}.dump());
+        }
+      }
+      close(client);
+      return;
+    }
     if (path == "/api/tasks" && method == "POST") {
       const auto body = request_body(client, request);
       const auto payload = body ? json::parse(*body, nullptr, false) : json();
@@ -1536,6 +1740,12 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       }
       reply(client, 200, "application/json",
             json{{"agents", connected}, {"pullImplemented", true}}.dump(), head_only);
+    } else if (path == "/api/siem") {
+      reply(client, 200, "application/json",
+            json{{"provider", "splunk"}, {"configured", siem.ready()},
+                 {"index", siem.index}, {"hostFields", siem.host_fields},
+                 {"correlation", "host-and-time"},
+                 {"graceSeconds", siem.grace_seconds}}.dump(), head_only);
     } else if (path == "/api/tasks") {
       json tasks = json::array();
       const auto summary = database->query(
@@ -1543,13 +1753,21 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
           "COUNT(*) FILTER (WHERE status = 'completed') FROM public.panel_tasks");
       const auto rows = database->query(
           "SELECT t.id, t.agent_id, a.name, t.scenario, t.status, "
-          "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), t.result::text, t.verbosity "
+          "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), t.result::text, t.verbosity, "
+          "COALESCE(s.state, CASE WHEN t.status = 'queued' THEN 'waiting' ELSE 'not_recorded' END), "
+          "COALESCE(s.alerts::text, '[]'), "
+          "COALESCE(to_char(s.checked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), ''), "
+          "COALESCE(s.error, ''), COALESCE(a.siem_host, a.name) "
           "FROM public.panel_tasks t JOIN public.panel_agents a ON a.id = t.agent_id "
+          "LEFT JOIN public.panel_siem_checks s ON s.task_id = t.id "
           "ORDER BY t.id DESC LIMIT 100");
       for (const auto& row : rows)
         tasks.push_back({{"id", row[0]}, {"agentId", row[1]}, {"agentName", row[2]},
                          {"scenario", row[3]}, {"status", row[4]}, {"createdAt", row[5]},
-                         {"result", json::parse(row[6])}, {"verbosity", row[7]}});
+                         {"result", json::parse(row[6])}, {"verbosity", row[7]},
+                         {"siem", {{"state", row[8]}, {"alerts", json::parse(row[9])},
+                                   {"graceSeconds", siem.grace_seconds},
+                                   {"checkedAt", row[10]}, {"error", row[11]}, {"host", row[12]}}}});
       reply(client, 200, "application/json",
             json{{"tasks", tasks},
                  {"counts", {{"active", std::stoull(summary[0][0])},
@@ -1691,6 +1909,54 @@ int main(int argc, char** argv) {
     const char* wg_endpoint = std::getenv("PANEL_WG_PUBLIC_ENDPOINT");
     wg_server_public_key = wg_public ? wg_public : "";
     wg_public_endpoint = wg_endpoint ? wg_endpoint : "";
+    const char* siem_url = std::getenv("PANEL_SIEM_URL");
+    const char* siem_key = std::getenv("PANEL_SIEM_API_KEY");
+    const char* siem_index = std::getenv("PANEL_SIEM_INDEX");
+    const char* siem_fields = std::getenv("PANEL_SIEM_HOST_FIELDS");
+    const char* siem_grace = std::getenv("PANEL_SIEM_GRACE_SECONDS");
+    siem.url = siem_url ? siem_url : "";
+    siem.api_key = siem_key ? siem_key : "";
+    if (siem_index && *siem_index) siem.index = siem_index;
+    if (siem_fields && *siem_fields) {
+      siem.host_fields.clear();
+      std::istringstream list(siem_fields);
+      std::string field;
+      while (std::getline(list, field, ',')) siem.host_fields.push_back(field);
+    }
+    if (siem_grace && *siem_grace) {
+      const std::string value(siem_grace);
+      if (value.empty() || value.size() > 4 ||
+          !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch); }))
+        throw std::runtime_error("invalid PANEL_SIEM_GRACE_SECONDS");
+      siem.grace_seconds = std::stoi(value);
+    }
+    if (!siem.url.empty() && siem.url.back() == '/') siem.url.pop_back();
+    const bool valid_url = (siem.url.rfind("https://", 0) == 0 ||
+        siem.url.rfind("http://127.0.0.1:", 0) == 0 ||
+        siem.url.rfind("http://localhost:", 0) == 0) &&
+        siem.url.find_first_of("@?#\\\r\n\t ") == std::string::npos;
+    const bool valid_key = !siem.api_key.empty() && siem.api_key.size() <= 8192 &&
+        std::all_of(siem.api_key.begin(), siem.api_key.end(), [](unsigned char ch) {
+          return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
+        });
+    const bool valid_index = !siem.index.empty() && siem.index.size() <= 64 &&
+        std::all_of(siem.index.begin(), siem.index.end(), [](unsigned char ch) {
+          return std::isalnum(ch) || ch == '-' || ch == '_';
+        });
+    const bool valid_fields = !siem.host_fields.empty() && siem.host_fields.size() <= 5 &&
+        std::all_of(siem.host_fields.begin(), siem.host_fields.end(), [](const std::string& field) {
+          return !field.empty() && field.size() <= 32 &&
+              std::all_of(field.begin(), field.end(), [](unsigned char ch) {
+                return std::isalnum(ch) || ch == '_' || ch == '.';
+              });
+        });
+    if ((!siem.url.empty() || !siem.api_key.empty() || !siem.index.empty()) &&
+        (!valid_url || !valid_key || !valid_index || !valid_fields ||
+         siem.grace_seconds < 30 || siem.grace_seconds > 1800))
+      throw std::runtime_error("invalid PANEL_SIEM_URL, PANEL_SIEM_API_KEY, PANEL_SIEM_INDEX, or PANEL_SIEM_HOST_FIELDS");
+    if (siem.ready()) database->query(
+        "UPDATE public.panel_siem_checks SET state = 'waiting' WHERE state = 'unconfigured' "
+        "AND task_id IN (SELECT id FROM public.panel_tasks WHERE status IN ('queued', 'running'))");
   } catch (const std::exception& error) {
     std::cerr << "Panel database: " << error.what() << '\n';
     return 1;
@@ -1723,10 +1989,13 @@ int main(int argc, char** argv) {
   std::thread module_worker;
   if (module_socket >= 0) module_worker = std::thread([]() { accept_clients(module_socket, false, true); });
   std::thread connection_worker(manage_connection);
+  std::thread siem_worker;
+  if (siem.ready()) siem_worker = std::thread(monitor_siem);
   accept_clients(admin_socket, false);
   agent_worker.join();
   if (module_worker.joinable()) module_worker.join();
   connection_worker.join();
+  if (siem_worker.joinable()) siem_worker.join();
   close(agent_socket);
   if (module_socket >= 0) close(module_socket);
   close(admin_socket);

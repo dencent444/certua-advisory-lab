@@ -8,9 +8,9 @@
   "sourceUrl":"https://cert.gov.ua/article/18365","sourceLabel":"CERT-UA",
   "requires":["wscript.exe","Register-ScheduledTask","Compress-Archive"],
   "flow":[
-    {"id":"script","titleEn":"GammaLoad script host","titleUk":"GammaLoad: скриптовий хост","noteEn":"Creates an inert VBScript and host marker.","noteUk":"Створює інертний VBScript і маркер хоста."},
-    {"id":"task","titleEn":"Scheduled task persistence","titleUk":"Закріплення через завдання","noteEn":"Creates, runs, and removes a task scoped to this lab run.","noteUk":"Створює, запускає та видаляє завдання цього тесту."},
-    {"id":"collect","titleEn":"GammaSteel file targeting","titleUk":"GammaSteel: відбір файлів","noteEn":"Reads only module-owned decoy documents.","noteUk":"Читає лише тестові документи модуля."},
-    {"id":"archive","titleEn":"Staging archive","titleUk":"Архів для підготовки","noteEn":"Archives decoys in the temporary work directory.","noteUk":"Архівує тестові файли в тимчасовому каталозі."}
+    {"id":"script","titleEn":"GammaLoad script host","titleUk":"GammaLoad: скриптовий хост","noteEn":"Creates an inert VBScript and host marker.","noteUk":"Створює інертний VBScript і маркер хоста.","attack":{"id":"T1059.005","mode":"emulated"}},
+    {"id":"task","titleEn":"Scheduled task persistence","titleUk":"Закріплення через завдання","noteEn":"Creates, runs, and removes a task scoped to this lab run.","noteUk":"Створює, запускає та видаляє завдання цього тесту.","attack":{"id":"T1053.005","mode":"emulated"}},
+    {"id":"collect","titleEn":"GammaSteel file targeting","titleUk":"GammaSteel: відбір файлів","noteEn":"Reads only module-owned decoy documents.","noteUk":"Читає лише тестові документи модуля.","attack":{"id":"T1005","mode":"emulated"}},
+    {"id":"archive","titleEn":"Staging archive","titleUk":"Архів для підготовки","noteEn":"Archives decoys in the temporary work directory.","noteUk":"Архівує тестові файли в тимчасовому каталозі.","attack":{"id":"T1560.001","mode":"emulated"}}
   ]
 }

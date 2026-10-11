@@ -20,28 +20,32 @@
       "titleEn": "OYSTERFRESH script",
       "titleUk": "Скрипт OYSTERFRESH",
       "noteEn": "Executes an inert JScript through cscript.",
-      "noteUk": "Виконує інертний JScript через cscript."
+      "noteUk": "Виконує інертний JScript через cscript.",
+      "attack": {"id":"T1059.007","mode":"emulated"}
     },
     {
       "id": "registry",
       "titleEn": "Encoded HKCU stage",
       "titleUk": "Кодований етап HKCU",
       "noteEn": "Writes and removes a unique lab registry value.",
-      "noteUk": "Записує й видаляє унікальне значення реєстру."
+      "noteUk": "Записує й видаляє унікальне значення реєстру.",
+      "attack": {"id":"T1112","mode":"emulated"}
     },
     {
       "id": "decode",
       "titleEn": "OYSTERSHUCK decode",
       "titleUk": "Декодування OYSTERSHUCK",
       "noteEn": "Reverses lab text and decodes ROT13/URL encoding.",
-      "noteUk": "Декодує тестовий текст у зворотному порядку, ROT13 та URL."
+      "noteUk": "Декодує тестовий текст у зворотному порядку, ROT13 та URL.",
+      "attack": {"id":"T1140","mode":"emulated"}
     },
     {
       "id": "beacon",
       "titleEn": "OYSTERBLUES profile",
       "titleUk": "Профіль OYSTERBLUES",
       "noteEn": "Sends bounded host metadata to loopback HTTP.",
-      "noteUk": "Надсилає обмежені метадані хоста на loopback HTTP."
+      "noteUk": "Надсилає обмежені метадані хоста на loopback HTTP.",
+      "attack": {"id":"T1071.001","mode":"context"}
     }
   ]
 }
