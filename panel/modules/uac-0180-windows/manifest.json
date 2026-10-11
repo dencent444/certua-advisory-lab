@@ -1,0 +1,20 @@
+{
+  "id": "uac-0180-windows",
+  "clusterId": "UAC-0180",
+  "platform": "windows",
+  "titleEn": "UAC-0180 · GLUEEGG → DROPCLUE → ATERA installer",
+  "titleUk": "UAC-0180 · GLUEEGG → DROPCLUE → інсталятор ATERA",
+  "descriptionEn": "A procurement PDF lure leads to a 128-byte XOR stage, a BAT/curl download from loopback, and a bounded MSI installer attempt.",
+  "descriptionUk": "PDF-приманка про закупівлю веде до XOR-етапу зі 128-байтним ключем, завантаження BAT/curl з loopback і обмеженої спроби запуску MSI.",
+  "limitationsEn": "The PDF is not opened; no Go or Lua malware runs. The downloaded fixture is deliberately not an MSI, so msiexec exits without installing ATERA. No external URL is contacted.",
+  "limitationsUk": "PDF не відкривається; шкідливі програми Go та Lua не виконуються. Завантажений файл навмисно не є MSI, тому msiexec завершується без встановлення ATERA. Зовнішніх запитів немає.",
+  "sourceUrl": "https://cert.gov.ua/article/6280099",
+  "sourceLabel": "CERT-UA, 17 July 2024",
+  "requires": ["powershell.exe", "cmd.exe", "curl.exe", "msiexec.exe"],
+  "flow": [
+    {"id":"lure","titleEn":"Procurement ZIP / PDF","titleUk":"ZIP / PDF про закупівлю","noteEn":"Creates a module-owned ZIP and PDF stand-in; no link is opened.","noteUk":"Створює власні ZIP і PDF-зразки; посилання не відкривається."},
+    {"id":"xor","titleEn":"GLUEEGG XOR stage","titleUk":"XOR-етап GLUEEGG","noteEn":"Round-trips an inert Lua marker through a 128-byte XOR key.","noteUk":"Кодує й декодує інертний Lua-маркер 128-байтним XOR-ключем."},
+    {"id":"bat","titleEn":"DROPCLUE BAT / curl","titleUk":"BAT / curl етап DROPCLUE","noteEn":"A local BAT launches curl.exe against a loopback fixture server.","noteUk":"Локальний BAT запускає curl.exe до сервера зразків на loopback."},
+    {"id":"msi","titleEn":"Installer attempt","titleUk":"Спроба запуску інсталятора","noteEn":"msiexec rejects a deliberately invalid module-owned MSI file.","noteUk":"msiexec відхиляє навмисно некоректний MSI-файл модуля."}
+  ]
+}
