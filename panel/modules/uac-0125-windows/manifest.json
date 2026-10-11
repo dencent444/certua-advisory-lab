@@ -1,0 +1,21 @@
+{
+  "id": "uac-0125-windows",
+  "clusterId": "UAC-0125",
+  "platform": "windows",
+  "titleEn": "UAC-0125 · Army+ lure → SSH / Tor staging",
+  "titleUk": "UAC-0125 · приманка Армія+ → підготовка SSH / Tor",
+  "descriptionEn": "A module-owned installer lookalike starts PowerShell, generates a test RSA pair, posts only its public key to loopback, and writes a Tor config stand-in.",
+  "descriptionUk": "Власний зразок інсталятора запускає PowerShell, створює тестову пару RSA, надсилає лише публічний ключ на loopback і записує зразок конфігурації Tor.",
+  "limitationsEn": "No NSIS installer, official Army+ app, OpenSSH installation, real authorized_keys change, private-key upload, or Tor service. All artifacts stay under the module work directory.",
+  "limitationsUk": "Без NSIS-інсталятора, справжнього застосунку Армія+, встановлення OpenSSH, зміни реального authorized_keys, передавання приватного ключа чи служби Tor. Усі артефакти залишаються в каталозі модуля.",
+  "sourceUrl": "https://cert.gov.ua/article/6281701",
+  "sourceLabel": "CERT-UA, 18 December 2024",
+  "requires": ["powershell.exe", "cmd.exe", "curl.exe", "ssh-keygen.exe"],
+  "flow": [
+    {"id":"lure","titleEn":"Army+ installer lure","titleUk":"Приманка-інсталятор Армія+","noteEn":"Runs a module-owned copy of cmd.exe under an installer-like filename.","noteUk":"Запускає власну копію cmd.exe з назвою, схожою на інсталятор."},
+    {"id":"powershell","titleEn":"init.ps1 handoff","titleUk":"Перехід до init.ps1","noteEn":"Runs an encoded PowerShell child that writes a local marker.","noteUk":"Запускає дочірній PowerShell з кодуванням команди для локального маркера."},
+    {"id":"key","titleEn":"RSA key staging","titleUk":"Підготовка RSA-ключів","noteEn":"ssh-keygen creates a decoy keypair and module-owned authorized_keys.","noteUk":"ssh-keygen створює тестову пару й власний authorized_keys модуля."},
+    {"id":"upload","titleEn":"curl key request","titleUk":"Запит curl з ключем","noteEn":"Posts only the generated public key to a loopback listener.","noteUk":"Надсилає лише створений публічний ключ на loopback."},
+    {"id":"tor","titleEn":"Hidden-service config","titleUk":"Конфігурація прихованого сервісу","noteEn":"Writes an inert Tor config without starting Tor or OpenSSH.","noteUk":"Записує інертну конфігурацію Tor без запуску Tor або OpenSSH."}
+  ]
+}
