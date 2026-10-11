@@ -240,7 +240,7 @@ Panel installed. Open it from your workstation with:
   http://127.0.0.1:4180/login
 
 Admin login: $admin_user
-Agent listener: TCP 4181 (or the automatic Pinggy HTTPS URL in Connect).
+Agent listener: TCP 4181 (or the automatic Pinggy HTTPS URL in Agents → Add agent).
 EOF
   if [[ "$wg_enabled" == 1 ]]; then
     printf 'Private Linux module channel: UDP %s; allow it in your firewall.\n' "$wg_port"

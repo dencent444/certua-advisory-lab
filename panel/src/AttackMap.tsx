@@ -113,7 +113,7 @@ const uacNotes: Record<string, [string, string]> = {
   result: ['The server stores task evidence. Completion shows execution of this lab chain, not whether an EDR detected it.', 'Сервер зберігає звіт. Завершення підтверджує виконання лабораторного ланцюга, а не виявлення засобом EDR.'],
 }
 
-export default function AttackMap({ language, task, tasks, events, modules, onSelectTask }: { language: Language; task: AttackTask | undefined; tasks: AttackTask[]; events: TaskEvent[]; modules: Module[]; onSelectTask: (id: string) => void }) {
+export default function AttackMap({ language, task, events, modules }: { language: Language; task: AttackTask | undefined; events: TaskEvent[]; modules: Module[] }) {
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const uk = language === 'uk'
   if (!task) return <section className="attack-map"><div className="attack-board-empty"><span className="empty-line" /><strong>{uk ? 'Немає запусків' : 'No runs yet'}</strong><p>{uk ? 'Запустіть сценарій, щоб побачити його етапи.' : 'Start a scenario to see its stages.'}</p></div></section>
@@ -138,10 +138,8 @@ export default function AttackMap({ language, task, tasks, events, modules, onSe
   const stateLabel = uk ? ({ queued: 'У черзі', running: 'Виконується', completed: 'Завершено', failed: 'Помилка' } as Record<string, string>)[task.status] : task.status
   const verbosityLabel = uk ? ({ standard: 'стандартна', detailed: 'детальна', trace: 'трасування' } as Record<string, string>)[task.verbosity] : task.verbosity
   return <section className="attack-map" aria-label={uk ? 'Схема атаки' : 'Attack graph'}>
-    <div className="attack-topline"><div><span className="attack-kicker">{uk ? 'ПЕРЕБІГ СЦЕНАРІЮ' : 'SCENARIO RUN'}</span><h2>{task.scenario} <span>#{task.id}</span></h2></div>
-      <div className="attack-controls"><select aria-label={uk ? 'Вибрати запуск' : 'Select run'} value={task.id} onChange={(event) => { onSelectTask(event.target.value); setFocusedId(null) }}>
-        {tasks.map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.scenario} · {item.status}</option>)}
-      </select><span className={'attack-status status-' + task.status}>{stateLabel}</span></div></div>
+    <div className="attack-topline"><div><span className="attack-kicker">{uk ? 'ПЕРЕБІГ СЦЕНАРІЮ' : 'SCENARIO RUN'}</span><h2>{module ? (uk ? module.titleUk : module.titleEn) : task.scenario} <span>#{task.id}</span></h2></div>
+      <div className="attack-controls"><span className={'attack-status status-' + task.status}>{stateLabel}</span></div></div>
     <div className="attack-meta"><span>{task.agentName}</span><span>{uk ? 'Деталізація' : 'Verbosity'}: {verbosityLabel ?? 'standard'}</span><span>{time(task.createdAt, language)}</span></div>
     {uac && <div className="attack-uac-context">
       <div className="attack-uac-heading"><span className="attack-kicker">{uk ? 'КОНТЕКСТ CERT-UA · UAC-0145' : 'CERT-UA CONTEXT · UAC-0145'}</span><a href="https://cert.gov.ua/article/6318863" target="_blank" rel="noreferrer">{uk ? 'Публікація ↗' : 'Advisory ↗'}</a></div>
@@ -150,6 +148,7 @@ export default function AttackMap({ language, task, tasks, events, modules, onSe
     </div>}
     {!uac && module?.flow && <div className="attack-uac-context"><div className="attack-uac-heading"><span className="attack-kicker">{uk ? module.titleUk : module.titleEn}</span>{module.sourceUrl && <a href={module.sourceUrl} target="_blank" rel="noreferrer">{module.sourceLabel ?? 'Source'} ↗</a>}</div><p>{uk ? 'Етапи відображають підтверджені дії лабораторного модуля; це не вердикт EDR.' : 'Stages show confirmed lab-module actions; this is not an EDR verdict.'}</p></div>}
     {evidence?.preflight?.ok === false && <div className="attack-uac-context"><span className="attack-kicker">{uk ? 'ПОПЕРЕДНЯ ПЕРЕВІРКА' : 'PREFLIGHT'}</span><p>{uk ? 'Симуляцію не розпочато. Відсутні команди: ' : 'Simulation did not start. Missing commands: '}{evidence.preflight.missing}</p></div>}
+    <div className="flow-scroll-hint">{uk ? 'Прокрутіть етапи →' : 'Scroll stages →'}</div>
     <div className="attack-flow-scroll"><div className="attack-flow" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(132px, 1fr))`, minWidth: `${Math.max(1000, stages.length * 145)}px` }} role="list" aria-label={uk ? 'Етапи атаки' : 'Attack stages'}>{stages.map((stage, index) => {
       const state = done[index] ? 'done' : task.status === 'completed' ? 'unobserved' : index === pending && task.status === 'failed' ? 'failed' : index === pending && (task.status === 'running' || task.status === 'queued') ? 'active' : 'pending'
       const last = events.filter((event) => stage.codes.includes(event.code)).at(-1)

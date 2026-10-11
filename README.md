@@ -101,18 +101,18 @@ Keep the admin port private. From an operator workstation, open it through SSH:
 ssh -L 4180:127.0.0.1:4180 <ssh-user>@<vps-host>
 ```
 
-Then visit `http://127.0.0.1:4180/login`. A direct agent connection on TCP `4181` uses HTTP, so limit that port to a trusted network. If the public port is closed, `Connect` will show the Pinggy HTTPS URL started by the server. Agent installation needs one of those paths to be reachable from the test host. For a private WireGuard module channel, follow the [WireGuard setup](panel/README.md#private-linux-module-channel) before enrolling Linux agents.
+Then visit `http://127.0.0.1:4180/login`. A direct agent connection on TCP `4181` uses HTTP, so limit that port to a trusted network. If the public port is closed, `Agents → Add agent` will show the Pinggy HTTPS URL started by the server. Agent installation needs one of those paths to be reachable from the test host. For a private WireGuard module channel, follow the [WireGuard setup](panel/README.md#private-linux-module-channel) before enrolling Linux agents.
 
 ## Test your infrastructure
 
 1. Pick a test machine with the EDR or logging stack you want to evaluate. Note the host, sensor, and time of the run.
-2. Open `Connect` in the panel. Run its Linux or Windows install command **on that machine**, under the account you want the scenario to use. The agent stays active after the terminal closes: systemd user service on Linux, scheduled task on Windows.
+2. Open `Agents → Add agent` in the panel. Run its Linux or Windows install command **on that machine**, under the account you want the scenario to use. The agent stays active after the terminal closes: systemd user service on Linux, scheduled task on Windows.
 3. Confirm the host appears in `Agents`. It sends a heartbeat every 10 seconds and basic host information once per minute.
-4. In `Scenarios`, select a module compatible with that OS and review its source, dependencies, and stated limits. Choose `standard`, `detailed`, or `trace` verbosity and start the task. The panel opens `Attacks` for that run.
-5. Compare the stage timestamps and process, task, registry, file, or network signals with your EDR events. `Tasks` keeps the final evidence in PostgreSQL. If a dependency is missing, the task reports it instead of claiming that stage ran.
+4. In `Scenarios`, select a module compatible with that OS and review its source, dependencies, and stated limits. Choose `standard`, `detailed`, or `trace` verbosity and start the task. The panel opens `Runs` for that run.
+5. Compare the stage timestamps and process, task, registry, file, or network signals with your EDR events. `Runs` shows the final evidence stored in PostgreSQL. If a dependency is missing, the task reports it instead of claiming that stage ran.
 6. Use `Disconnect` in `Agents` when finished. The agent removes its service or scheduled task on its next heartbeat.
 
-For example, the UAC-0212 Windows module creates a local shortcut, starts PowerShell, writes a temporary `Run` value, and copies a module-owned sample document. It does not read the host's documents. The stages are visible separately in `Attacks`; an EDR detection must be checked in the EDR console.
+For example, the UAC-0212 Windows module creates a local shortcut, starts PowerShell, writes a temporary `Run` value, and copies a module-owned sample document. It does not read the host's documents. The stages are visible separately in `Runs`; an EDR detection must be checked in the EDR console.
 
 ## Modules and checks
 

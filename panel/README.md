@@ -78,13 +78,13 @@ The current agent protocol uses WireGuard interface `certua-lab`, internal addre
 
    The sync script reads enrolled peers from PostgreSQL and updates `certua-lab`. Its packaged defaults expect the `certua_panel` OS user, the `certua_panel` database, and the `/opt/cert-ua-panel` layout used in the project README.
 
-If Linux agents were installed before WireGuard was enabled, reinstall them using a fresh command from `Connect` so they receive the new endpoint and client hash.
+If Linux agents were installed before WireGuard was enabled, reinstall them using a fresh command from `Agents → Add agent` so they receive the new endpoint and client hash.
 
 ## Agent lifecycle
 
-`Connect` produces an install command for Linux or Windows. Run it as the account that should own the agent. Linux requires Bash, curl, OpenSSL, standard command-line utilities, and a systemd user session; its installer enables linger so the service survives logout. The UAC-0145 Linux module also needs Python 3. Windows installs a `CertUaAgent` scheduled task for the current user. Older Windows installs need a fresh `Connect` command to receive task execution support.
+`Agents → Add agent` produces an install command for Linux or Windows. Run it as the account that should own the agent. Linux requires Bash, curl, OpenSSL, standard command-line utilities, and a systemd user session; its installer enables linger so the service survives logout. The UAC-0145 Linux module also needs Python 3. Windows installs a `CertUaAgent` scheduled task for the current user. Older Windows installs need a fresh command from this screen to receive task execution support.
 
-Agents send a signed heartbeat every 10 seconds and host details once per minute. The server accepts a host as online if it has been seen within 45 seconds. `Disconnect` disables the agent in PostgreSQL; the agent removes its own service or task on the next heartbeat. UI test-instance entries are browser-session state, while agent identities, tasks, and events live in PostgreSQL.
+Agents send a signed heartbeat every 10 seconds and host details once per minute. The server accepts a host as online if it has been seen within 45 seconds. `Disconnect` disables the agent in PostgreSQL; the agent removes its own service or task on the next heartbeat. Agent identities, tasks, and events live in PostgreSQL.
 
 If an agent cannot contact the server to receive `Disconnect`, remove it locally. On Linux, disable `certua-agent.service` with `systemctl --user disable --now`, remove `~/.config/systemd/user/certua-agent.service` and `~/.local/share/certua-agent`, then run `systemctl --user daemon-reload`. On Windows, unregister the `CertUaAgent` task and remove `%LOCALAPPDATA%\CertUaAgent`.
 
@@ -92,7 +92,7 @@ If an agent cannot contact the server to receive `Disconnect`, remove it locally
 
 Each folder under [`modules/`](modules) has a `manifest.json` and a platform script: `run.sh` for Linux or `run.ps1` for Windows. The server reads manifests when `/api/modules` is requested. The Linux agent checks the task signature, downloads the script, and verifies its SHA-256 before running it. The Windows agent verifies the signed task and hash of the script included in the heartbeat response.
 
-The module checks its declared dependencies before the simulated chain starts. It runs with the agent user's permissions in a temporary directory and returns a compact `result.json` with stage results. The agent removes the directory after collecting evidence. `Tasks` and `Attacks` read persisted PostgreSQL events. Event timestamps are server receipt times; completion is not an EDR verdict.
+The module checks its declared dependencies before the simulated chain starts. It runs with the agent user's permissions in a temporary directory and returns a compact `result.json` with stage results. The agent removes the directory after collecting evidence. `Runs` reads persisted PostgreSQL events. Event timestamps are server receipt times; completion is not an EDR verdict.
 
 The UAC-0145 Linux scenario surveys file **metadata** to estimate what a process with the agent user's access could reach. It does not read or transmit file contents. The 100,000-file and 20-second limits can make the count a lower bound; the survey is a lab impact hypothesis, not a published behavior of the original second stage.
 

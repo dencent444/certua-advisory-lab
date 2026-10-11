@@ -1028,7 +1028,7 @@ std::optional<std::string> request_body(int client, const std::string& request) 
 }
 
 std::string login_page(bool ukrainian) {
-  const std::string title = ukrainian ? "Вхід до лабораторії" : "certua-advisory-lab sign in";
+  const std::string title = ukrainian ? "Вхід" : "Sign in";
   const std::string username = ukrainian ? "Ім’я користувача" : "Username";
   const std::string password = ukrainian ? "Пароль" : "Password";
   const std::string submit = ukrainian ? "Увійти" : "Sign in";
@@ -1036,11 +1036,22 @@ std::string login_page(bool ukrainian) {
   return "<!doctype html><html lang='" + std::string(ukrainian ? "uk" : "en") +
          "'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
          "<title>" + title + " · certua-advisory-lab</title><style>"
-         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#fff;font:13px system-ui,sans-serif}"
-         "main{width:min(400px,calc(100vw - 32px));border:1px solid #a7192d;padding:28px}h1{font-size:20px;margin:0 0 26px}"
-         "label{display:block;margin:16px 0 7px}input{width:100%;height:40px;padding:8px 10px;background:#080808;color:#fff;border:1px solid #8b1527}"
-         "button{width:100%;height:42px;margin-top:24px;background:#ff304c;color:#000;border:0;font-weight:700;cursor:pointer}"
-         "#error{min-height:18px;color:#ff546a;margin-top:12px}</style><main><h1>" + title + "</h1>"
+         "@font-face{font-family:PlexLatin;font-weight:400;src:url('/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexLatin;font-weight:600;src:url('/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexCyrillic;font-weight:400;src:url('/fonts/ibm-plex-sans-cyrillic-400-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexCyrillic;font-weight:600;src:url('/fonts/ibm-plex-sans-cyrillic-600-normal.woff2') format('woff2')}"
+         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#0d0f12;color:#f3f4f6;font:14px PlexLatin,sans-serif}"
+         "html[lang=uk] body{font-family:PlexCyrillic,PlexLatin,sans-serif}"
+         "main{width:min(420px,100%);border:1px solid #343b44;background:#15181c;padding:32px}"
+         ".brand{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-weight:600}"
+         ".brand b{display:grid;place-items:center;width:25px;height:25px;border-radius:5px;background:#302126;color:#e35261}"
+         "h1{font-size:22px;margin:0 0 24px;letter-spacing:-.03em}"
+         "label{display:block;margin:16px 0 7px;color:#b7bec8;font-size:12px;font-weight:600}"
+         "input{width:100%;height:42px;padding:8px 11px;border:1px solid #4b5560;border-radius:3px;background:#101216;color:#f3f4f6;font:inherit}"
+         "input:focus-visible,button:focus-visible{outline:2px solid #e35261;outline-offset:2px}"
+         "button{width:100%;height:42px;margin-top:24px;border:1px solid #e35261;border-radius:4px;background:#e35261;color:#101216;font:inherit;font-size:13px;font-weight:600;cursor:pointer}"
+         "button:hover{background:#f37480}#error{min-height:18px;color:#f37480;margin-top:12px;font-size:12px}</style>"
+         "<main><div class='brand'><b aria-hidden='true'>C</b><span>certua-advisory-lab</span></div><h1>" + title + "</h1>"
          "<form><label for='username'>" + username + "</label><input id='username' autocomplete='username' required>"
          "<label for='password'>" + password + "</label><input id='password' type='password' autocomplete='current-password' required>"
          "<button>" + submit + "</button><div id='error' role='alert'></div></form></main><script>"
@@ -1363,6 +1374,22 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       close(client);
       return;
     }
+    if ((method == "GET" || method == "HEAD") &&
+        (path == "/fonts/ibm-plex-sans-latin-400-normal.woff2" ||
+         path == "/fonts/ibm-plex-sans-latin-600-normal.woff2" ||
+         path == "/fonts/ibm-plex-sans-cyrillic-400-normal.woff2" ||
+         path == "/fonts/ibm-plex-sans-cyrillic-600-normal.woff2")) {
+      const fs::path file = dist_dir / path.substr(1);
+      std::ifstream stream(file, std::ios::binary);
+      if (stream) {
+        const std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        reply(client, 200, "font/woff2", body, head_only);
+      } else {
+        reply(client, 404, "text/plain", "Not found", head_only);
+      }
+      close(client);
+      return;
+    }
     if (!authenticated(request)) {
       if (path.rfind("/api/", 0) == 0 || method == "POST") {
         reply(client, 401, "application/json", R"({"error":"authentication required"})", head_only);
@@ -1499,6 +1526,9 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
             json{{"agents", connected}, {"pullImplemented", true}}.dump(), head_only);
     } else if (path == "/api/tasks") {
       json tasks = json::array();
+      const auto summary = database->query(
+          "SELECT COUNT(*) FILTER (WHERE status IN ('queued', 'running')), "
+          "COUNT(*) FILTER (WHERE status = 'completed') FROM public.panel_tasks");
       const auto rows = database->query(
           "SELECT t.id, t.agent_id, a.name, t.scenario, t.status, "
           "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), t.result::text, t.verbosity "
@@ -1508,7 +1538,10 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
         tasks.push_back({{"id", row[0]}, {"agentId", row[1]}, {"agentName", row[2]},
                          {"scenario", row[3]}, {"status", row[4]}, {"createdAt", row[5]},
                          {"result", json::parse(row[6])}, {"verbosity", row[7]}});
-      reply(client, 200, "application/json", json{{"tasks", tasks}}.dump(), head_only);
+      reply(client, 200, "application/json",
+            json{{"tasks", tasks},
+                 {"counts", {{"active", std::stoull(summary[0][0])},
+                              {"completed", std::stoull(summary[0][1])}}}}.dump(), head_only);
     } else if (path == "/api/task-events") {
       const std::string task_id = query_value(target, "task");
       if (task_id.empty() || task_id.size() > 20 ||

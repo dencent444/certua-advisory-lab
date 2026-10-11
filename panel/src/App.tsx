@@ -1,23 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import AttackMap, { eventLabel, metricLabel, metricValue, type TaskEvent } from './AttackMap'
+import AttackMap, { type TaskEvent } from './AttackMap'
 
-type Page = 'main' | 'creds' | 'tasks' | 'scenarios' | 'agents' | 'connect' | 'attacks'
+type Page = 'main' | 'creds' | 'scenarios' | 'agents' | 'attacks'
 type Language = 'en' | 'uk'
-type Theme = 'red' | 'green' | 'blue' | 'purple' | 'white'
-
-const themes: { id: Theme; labelEn: string; labelUk: string; color: string }[] = [
-  { id: 'red', labelEn: 'Red', labelUk: 'Червоний', color: '#ff3047' },
-  { id: 'green', labelEn: 'Green', labelUk: 'Зелений', color: '#00e676' },
-  { id: 'blue', labelEn: 'Blue', labelUk: 'Синій', color: '#00a2ff' },
-  { id: 'purple', labelEn: 'Purple', labelUk: 'Фіолетовий', color: '#b347ff' },
-  { id: 'white', labelEn: 'White', labelUk: 'Білий', color: '#cbd5e1' },
-]
-
-function currentTheme(): Theme {
-  const saved = localStorage.getItem('certua_theme') as Theme
-  return ['red', 'green', 'blue', 'purple', 'white'].includes(saved) ? saved : 'red'
-}
-type Instance = { id: string; name: string; address: string }
 type Agent = { id: string; name: string; lastSeen: string; info: { os?: string; arch?: string; cpu?: number; memoryMiB?: number; uptimeSeconds?: number } }
 type ServerLog = { time: string; level: string; message: string }
 type Module = { id: string; clusterId?: string; platform: string; titleEn: string; titleUk: string; descriptionEn: string; descriptionUk: string; sourceUrl?: string; sourceLabel?: string; limitationsEn?: string; limitationsUk?: string; requires?: string[]; flow?: { id: string; titleEn: string; titleUk: string; noteEn: string; noteUk: string }[] }
@@ -33,78 +18,69 @@ type ConnectionData = {
   agentPullReady: boolean
 }
 
-const pages: Page[] = ['main', 'creds', 'tasks', 'scenarios', 'agents', 'connect', 'attacks']
-const directoryPages: Exclude<Page, 'main'>[] = ['creds', 'tasks', 'scenarios', 'agents', 'connect', 'attacks']
+const pages: Page[] = ['main', 'scenarios', 'attacks', 'agents', 'creds']
 
 const translations = {
   en: {
-    pages: { main: 'Main', creds: 'Creds', tasks: 'Tasks', scenarios: 'Scenarios', agents: 'Agents', connect: 'Connect', attacks: 'Attacks' },
-    directory: { creds: 'Credentials', tasks: 'Task list', scenarios: 'Advisories and launch', agents: 'Agent list', connect: 'Test instances', attacks: 'Attack graph' },
-    sections: 'Sections', add: 'Add', hiddenPassword: 'Password hidden',
+    pages: { main: 'Overview', creds: 'Settings', scenarios: 'Scenarios', agents: 'Agents', attacks: 'Runs' },
+    hiddenPassword: 'Password hidden',
     account: 'Panel account', changeCredentials: 'Change credentials', currentPassword: 'Current password', newPassword: 'New password',
     saveCredentials: 'Save credentials', credsUnavailable: 'Account unavailable', credsInvalid: 'Check the current password and try again.',
     passwordLength: 'New password must contain at least 16 characters.', logout: 'Sign out',
-    taskList: 'Task list', task: 'Task', agent: 'Agent', status: 'Status',
+    agent: 'Agent', status: 'Status',
     agentList: 'Agent list', lastSeen: 'Last seen',
     description: 'Description', noScenario: 'No scenarios', noScenarioHint: 'Scenarios will appear here after they are added.',
-    launch: 'LAUNCH', launchHint: 'Start a scenario on a connected agent.', launchButton: 'Start scenario',
+    launch: 'LAUNCH', launchButton: 'Start scenario',
     availableScenarios: 'Available scenarios',
     storage: 'Storage', storageHint: 'One panel account is stored in PostgreSQL. Changing it signs out all sessions.',
-    taskDetails: 'Task details', agentDetails: 'Agent details',
-    state: 'Status', noTasks: 'No tasks', noTasksHint: 'Tasks will appear here after they are created.',
-    noAgents: 'No connected agents', noAgentsHint: 'Run an agent command from Connect to register one.',
+    agentDetails: 'Agent details',
+    noAgents: 'No connected agents',
     agentsUnavailable: 'Agent list unavailable', agentsUnavailableHint: 'Could not load agents from the server.',
-    noTaskSelected: 'No task selected', noAgentSelected: 'No agent selected', online: 'Online', agentId: 'Agent ID',
+    online: 'Online', agentId: 'Agent ID',
     os: 'OS', architecture: 'Architecture', cpuThreads: 'CPU threads', memory: 'Memory', uptime: 'Uptime (s)', disconnect: 'Disconnect', disconnectError: 'Could not disconnect the agent.',
-    session: 'SERVER PANEL', logsCaption: 'Server response for this section', logsLabel: 'Server log', contextLabel: 'Additional information', navLabel: 'Sections',
+    contextLabel: 'Additional information', navLabel: 'Sections',
     logsLoading: 'Loading server logs', logsEmpty: 'No server logs for this section', logsError: 'Server logs unavailable',
-    logs: 'Logs', local: 'LOCAL', server: 'SERVER', username: 'Username', password: 'Password',
-    addInstance: 'Add instance', instanceName: 'Instance name', instanceAddress: 'Address', instanceList: 'Test instances',
-    noInstances: 'No instances added', noInstancesHint: 'Add a name and address using the form above.',
-    connectDetails: 'Connection details', notConnected: 'Not connected', connectHint: 'Instance connection is not available yet.',
-    connectAction: 'Connect', networkAccess: 'Agent endpoint', port: 'Agent port', publicHost: 'Public host', portState: 'Port check',
+    server: 'SERVER', username: 'Username',
+    networkAccess: 'Agent endpoint', port: 'Agent port', publicHost: 'Public host', portState: 'Port check',
     checkPort: 'Check again', checking: 'Checking…', pinggy: 'Agent HTTPS endpoint', pinggyHint: 'The tunnel accepts agent traffic only.',
     tunnelStates: { waiting: 'Waiting for port check', starting: 'Starting tunnel', active: 'Tunnel active', error: 'Retrying tunnel', not_needed: 'Direct port available' },
     agentCommandTitle: 'Agent command', agentCommandHint: 'Installs a background agent that checks in every 10 seconds.', linux: 'Linux · Bash', windows: 'Windows · PowerShell', waitingForAddress: 'Waiting for server address…',
-    copy: 'Copy', copied: 'Copied', connectedAgents: 'Connected agents', noConnectedAgents: 'No connected agents', pullLater: 'Run the agent command above to connect one.',
+    copy: 'Copy', copied: 'Copied', connectedAgents: 'Connected agents',
     probeStates: { unknown: 'Not checked', open: 'Reachable', closed: 'Closed', filtered: 'Filtered', blocked: 'Blocked', unavailable: 'Check unavailable' },
   },
   uk: {
-    pages: { main: 'Головна', creds: 'Дані доступу', tasks: 'Завдання', scenarios: 'Сценарії', agents: 'Агенти', connect: 'Підключення', attacks: 'Атаки' },
-    directory: { creds: 'Облікові дані', tasks: 'Список завдань', scenarios: 'Публікації та запуск', agents: 'Список агентів', connect: 'Тестові інстанси', attacks: 'Схема атаки' },
-    sections: 'Розділи', add: 'Додати', hiddenPassword: 'Пароль приховано',
+    pages: { main: 'Огляд', creds: 'Налаштування', scenarios: 'Сценарії', agents: 'Агенти', attacks: 'Запуски' },
+    hiddenPassword: 'Пароль приховано',
     account: 'Обліковий запис панелі', changeCredentials: 'Змінити дані входу', currentPassword: 'Поточний пароль', newPassword: 'Новий пароль',
     saveCredentials: 'Зберегти дані', credsUnavailable: 'Запис недоступний', credsInvalid: 'Перевірте поточний пароль і повторіть спробу.',
     passwordLength: 'Новий пароль має містити щонайменше 16 символів.', logout: 'Вийти',
-    taskList: 'Список завдань', task: 'Завдання', agent: 'Агент', status: 'Статус',
+    agent: 'Агент', status: 'Статус',
     agentList: 'Список агентів', lastSeen: 'Останній зв’язок',
     description: 'Опис', noScenario: 'Немає сценаріїв', noScenarioHint: 'Сценарії з’являться тут після додавання.',
-    launch: 'ЗАПУСК', launchHint: 'Запустіть сценарій на підключеному агенті.', launchButton: 'Запустити сценарій',
+    launch: 'ЗАПУСК', launchButton: 'Запустити сценарій',
     availableScenarios: 'Доступні сценарії',
     storage: 'Зберігання', storageHint: 'Один обліковий запис панелі зберігається в PostgreSQL. Зміна завершує всі сесії.',
-    taskDetails: 'Деталі завдання', agentDetails: 'Деталі агента',
-    state: 'Стан', noTasks: 'Немає завдань', noTasksHint: 'Завдання з’являться тут після створення.',
-    noAgents: 'Немає підключених агентів', noAgentsHint: 'Запустіть команду агента з розділу «Підключення».',
+    agentDetails: 'Деталі агента',
+    noAgents: 'Немає підключених агентів',
     agentsUnavailable: 'Список агентів недоступний', agentsUnavailableHint: 'Не вдалося завантажити агентів із сервера.',
-    noTaskSelected: 'Завдання не обрано', noAgentSelected: 'Агента не обрано', online: 'У мережі', agentId: 'ID агента',
+    online: 'У мережі', agentId: 'ID агента',
     os: 'ОС', architecture: 'Архітектура', cpuThreads: 'Потоки CPU', memory: 'Пам’ять', uptime: 'Час роботи (с)', disconnect: 'Відключити', disconnectError: 'Не вдалося відключити агента.',
-    session: 'СЕРВЕРНА ПАНЕЛЬ', logsCaption: 'Відповідь сервера для цього розділу', logsLabel: 'Журнал сервера', contextLabel: 'Додаткова інформація', navLabel: 'Розділи',
+    contextLabel: 'Додаткова інформація', navLabel: 'Розділи',
     logsLoading: 'Завантаження журналу', logsEmpty: 'Для цього розділу немає записів сервера', logsError: 'Журнал сервера недоступний',
-    logs: 'Журнал', local: 'ЛОКАЛЬНО', server: 'СЕРВЕР', username: 'Ім’я користувача', password: 'Пароль',
-    addInstance: 'Додати інстанс', instanceName: 'Назва інстансу', instanceAddress: 'Адреса', instanceList: 'Тестові інстанси',
-    noInstances: 'Інстансів поки немає', noInstancesHint: 'Додайте назву й адресу через форму вище.',
-    connectDetails: 'Деталі підключення', notConnected: 'Не підключено', connectHint: 'Підключення інстансів поки недоступне.',
-    connectAction: 'Підключити', networkAccess: 'Адреса агентів', port: 'Порт агентів', publicHost: 'Публічна адреса', portState: 'Перевірка порту',
+    server: 'СЕРВЕР', username: 'Ім’я користувача',
+    networkAccess: 'Адреса агентів', port: 'Порт агентів', publicHost: 'Публічна адреса', portState: 'Перевірка порту',
     checkPort: 'Перевірити знову', checking: 'Перевірка…', pinggy: 'HTTPS-адреса агентів', pinggyHint: 'Тунель приймає лише трафік агентів.',
     tunnelStates: { waiting: 'Очікування перевірки порту', starting: 'Запуск тунелю', active: 'Тунель активний', error: 'Повторна спроба', not_needed: 'Прямий порт доступний' },
     agentCommandTitle: 'Команда агента', agentCommandHint: 'Встановлює фоновий агент, який надсилає сигнал кожні 10 секунд.', linux: 'Linux · Bash', windows: 'Windows · PowerShell', waitingForAddress: 'Очікування адреси сервера…',
-    copy: 'Копіювати', copied: 'Скопійовано', connectedAgents: 'Підключені агенти', noConnectedAgents: 'Підключених агентів немає', pullLater: 'Запустіть команду агента вище, щоб підключити його.',
+    copy: 'Копіювати', copied: 'Скопійовано', connectedAgents: 'Підключені агенти',
     probeStates: { unknown: 'Не перевірено', open: 'Доступний', closed: 'Закритий', filtered: 'Фільтрується', blocked: 'Заблокований', unavailable: 'Перевірка недоступна' },
   },
 } as const
 
 function currentPage(): Page {
   const path = window.location.pathname.slice(1).replace(/\/$/, '')
+  if (path === 'tasks') return 'attacks'
+  if (path === 'connect') return 'agents'
   return pages.find((page) => page === path) ?? 'main'
 }
 
@@ -112,20 +88,14 @@ function currentLanguage(): Language {
   return new URLSearchParams(window.location.search).get('lang') === 'uk' ? 'uk' : 'en'
 }
 
-function newId(): string {
-  return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${bytes} B`
-}
-
 function agentSupports(agent: Agent, module: Module): boolean {
   const os = agent.info?.os ?? ''
   return module.platform === 'linux' ? os === 'Linux' : os.startsWith('Microsoft Windows')
+}
+
+function statusLabel(status: string, language: Language): string {
+  if (language === 'en') return status
+  return ({ queued: 'У черзі', running: 'Виконується', completed: 'Завершено', failed: 'Помилка' } as Record<string, string>)[status] ?? status
 }
 
 function Surface({ title, meta, children, className = '' }: {
@@ -159,22 +129,13 @@ function App() {
   const navigationRef = useRef<HTMLElement>(null)
   const [page, setPage] = useState<Page>(currentPage)
   const [language, setLanguage] = useState<Language>(currentLanguage)
-  const [theme, setTheme] = useState<Theme>(currentTheme)
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('certua_theme', theme)
-  }, [theme])
+  const [agentView, setAgentView] = useState<'list' | 'connect'>(window.location.pathname.startsWith('/connect') ? 'connect' : 'list')
   const [accountName, setAccountName] = useState('')
   const [username, setUsername] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [password, setPassword] = useState('')
   const [credentialError, setCredentialError] = useState('')
   const [savingCredentials, setSavingCredentials] = useState(false)
-  const [instances, setInstances] = useState<Instance[]>([])
-  const [instanceName, setInstanceName] = useState('')
-  const [instanceAddress, setInstanceAddress] = useState('')
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [logs, setLogs] = useState<ServerLog[]>([])
   const [logsState, setLogsState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [connection, setConnection] = useState<ConnectionData | null>(null)
@@ -188,8 +149,12 @@ function App() {
   const [agentActionError, setAgentActionError] = useState('')
   const [modules, setModules] = useState<Module[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [taskCounts, setTaskCounts] = useState<{ active: number; completed: number } | null>(null)
+  const [dataState, setDataState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null)
+  const [scenarioQuery, setScenarioQuery] = useState('')
+  const [scenarioPlatform, setScenarioPlatform] = useState<'all' | 'linux' | 'windows'>('all')
   const [launchAgentId, setLaunchAgentId] = useState('')
   const [launchError, setLaunchError] = useState('')
   const [launchOpen, setLaunchOpen] = useState(false)
@@ -198,10 +163,13 @@ function App() {
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([])
   const [eventsTaskId, setEventsTaskId] = useState<string | null>(null)
 
-  const selectedAgent = connectedAgents.find((agent) => agent.id === selectedAgentId)
+  const selectedAgent = connectedAgents.find((agent) => agent.id === selectedAgentId) ?? connectedAgents[0]
+  const query = scenarioQuery.trim().toLocaleLowerCase()
+  const filteredModules = modules.filter((module) => (scenarioPlatform === 'all' || module.platform === scenarioPlatform) && (!query || [module.id, module.clusterId, module.titleEn, module.titleUk, module.descriptionEn, module.descriptionUk].some((value) => value?.toLocaleLowerCase().includes(query))))
   const t = translations[language]
 
   function navigate(nextPage: Page) {
+    if (nextPage === 'agents' && page !== 'agents') setAgentView('list')
     if (nextPage === page) return
     window.history.pushState(null, '', `/${nextPage}${window.location.search}`)
     setPage(nextPage)
@@ -216,8 +184,11 @@ function App() {
   }
 
   useEffect(() => {
+    const legacyPage = window.location.pathname.replace(/\/$/, '')
+    if (legacyPage === '/tasks' || legacyPage === '/connect') window.history.replaceState(null, '', `${legacyPage === '/tasks' ? '/attacks' : '/agents'}${window.location.search}`)
     const handlePopState = () => {
       setPage(currentPage())
+      setAgentView(window.location.pathname.startsWith('/connect') ? 'connect' : 'list')
       setLanguage(currentLanguage())
     }
     window.addEventListener('popstate', handlePopState)
@@ -248,11 +219,13 @@ function App() {
   }, [page, language, t.credsUnavailable])
 
   useEffect(() => {
+    if (page === 'attacks') { setLogs([]); setLogsState('ready'); return }
     const controller = new AbortController()
     // Logs come from the server for the active tab; the browser only refreshes their view.
     async function loadLogs() {
       try {
-        const response = await fetch(`/api/logs?tab=${page}&lang=${language}`, { signal: controller.signal, cache: 'no-store' })
+        const tab = page === 'agents' && agentView === 'connect' ? 'connect' : page
+        const response = await fetch(`/api/logs?tab=${tab}&lang=${language}`, { signal: controller.signal, cache: 'no-store' })
         if (!response.ok) throw new Error('log request failed')
         const data = await response.json() as { entries: ServerLog[] }
         setLogs(Array.isArray(data.entries) ? data.entries : [])
@@ -266,7 +239,7 @@ function App() {
     void loadLogs()
     const timer = window.setInterval(() => { void loadLogs() }, 5000)
     return () => { controller.abort(); window.clearInterval(timer) }
-  }, [page, language])
+  }, [page, agentView, language])
 
   async function loadConnection(check: boolean) {
     if (check) setCheckingPort(true)
@@ -300,14 +273,14 @@ function App() {
   }
 
   useEffect(() => {
-    if (page !== 'connect') return
+    if (page !== 'agents' || agentView !== 'connect') return
     void loadConnection(false)
     const timer = window.setInterval(() => { void loadConnection(false) }, 5000)
     return () => window.clearInterval(timer)
-  }, [page])
+  }, [page, agentView])
 
   useEffect(() => {
-    if (page !== 'main' && page !== 'agents') return
+    if (page !== 'agents') return
     const controller = new AbortController()
     async function loadAgents() {
       try {
@@ -327,7 +300,7 @@ function App() {
   }, [page])
 
   useEffect(() => {
-    if (page !== 'scenarios' && page !== 'tasks' && page !== 'attacks') return
+    if (page !== 'main' && page !== 'scenarios' && page !== 'attacks') return
     let active = true
     async function refresh() {
       try {
@@ -340,9 +313,11 @@ function App() {
         if (active) {
           setModules(moduleData.modules ?? [])
           setTasks(taskData.tasks ?? [])
+          setTaskCounts(taskData.counts ?? null)
           setConnectedAgents(agentData.agents ?? [])
+          setDataState('ready')
         }
-      } catch { if (active) setLaunchError(language === 'uk' ? 'Дані модулів недоступні.' : 'Module data unavailable.') }
+      } catch { if (active) setDataState('error') }
     }
     void refresh()
     const timer = window.setInterval(() => { void refresh() }, 5000)
@@ -352,7 +327,7 @@ function App() {
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0]
   const visibleTaskEvents = eventsTaskId === currentTask?.id ? taskEvents : []
   useEffect(() => {
-    if ((page !== 'tasks' && page !== 'attacks') || !currentTask?.id) { setTaskEvents([]); setEventsTaskId(null); return }
+    if (page !== 'attacks' || !currentTask?.id) { setTaskEvents([]); setEventsTaskId(null); return }
     let active = true
     async function refreshEvents() {
       try {
@@ -369,9 +344,9 @@ function App() {
     return () => { active = false; window.clearInterval(timer) }
   }, [page, currentTask?.id])
 
-  // Open the new task in Attacks immediately, then replace the optimistic row with server data.
+  // Keep the run visible while the server completes the first refresh.
   async function launchModule() {
-    const selected = modules.find((module) => module.id === selectedModuleId) ?? modules[0]
+    const selected = filteredModules.find((module) => module.id === selectedModuleId) ?? filteredModules[0]
     const agent = connectedAgents.find((item) => item.id === launchAgentId)
     if (!selected || !agent || !agentSupports(agent, selected)) return
     const moduleId = selected.id
@@ -389,7 +364,11 @@ function App() {
       setLaunchOpen(false)
       navigate('attacks')
       void fetch('/api/tasks', { cache: 'no-store' }).then(async (taskResponse) => {
-        if (taskResponse.ok) setTasks((await taskResponse.json()).tasks ?? [])
+        if (taskResponse.ok) {
+          const data = await taskResponse.json()
+          setTasks(data.tasks ?? [])
+          setTaskCounts(data.counts ?? null)
+        }
       }).catch(() => {})
     } catch { setLaunchError(language === 'uk' ? 'Не вдалося запустити модуль.' : 'Could not launch module.') }
     finally { setLaunching(false) }
@@ -418,32 +397,20 @@ function App() {
     }
   }
 
-  function addInstance(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const name = instanceName.trim()
-    const address = instanceAddress.trim()
-    if (!name || !address) return
-    const instance = { id: newId(), name, address }
-    setInstances((items) => [...items, instance])
-    setSelectedInstanceId(instance.id)
-    setInstanceName('')
-    setInstanceAddress('')
-  }
-
   function renderMain() {
     return (
-      <Surface title={t.sections} meta="06 / 06" className="section-directory">
-        {directoryPages.map((item, index) => (
-          <button className="directory-row" key={item} onClick={() => navigate(item)}>
-            <span className="directory-number">0{index + 1}</span>
-            <span className="directory-copy">
-              <strong>{t.pages[item]}</strong>
-              <small>{t.directory[item]}</small>
-            </span>
-            <span className="directory-arrow" aria-hidden="true">↗</span>
-          </button>
-        ))}
-      </Surface>
+      <div className="stack overview-stack">
+        <div className="overview-heading"><div><span className="eyebrow">{language === 'uk' ? 'РОБОЧИЙ ПРОСТІР' : 'WORKSPACE'}</span><h1>{t.pages.main}</h1></div><button type="button" className="primary-button" onClick={() => navigate('scenarios')}>{language === 'uk' ? 'Запустити симуляцію' : 'Run a simulation'}</button></div>
+        <div className="overview-metrics" aria-label={language === 'uk' ? 'Поточний стан' : 'Current state'}>
+          <button type="button" onClick={() => navigate('agents')}><span>{language === 'uk' ? 'Агенти онлайн' : 'Agents online'}</span><strong>{dataState === 'ready' ? connectedAgents.length : '—'}</strong></button>
+          <button type="button" onClick={() => navigate('scenarios')}><span>{t.pages.scenarios}</span><strong>{dataState === 'ready' ? modules.length : '—'}</strong></button>
+          <button type="button" onClick={() => navigate('attacks')}><span>{language === 'uk' ? 'Активні запуски' : 'Active runs'}</span><strong>{dataState === 'ready' ? taskCounts?.active ?? '—' : '—'}</strong></button>
+          <button type="button" onClick={() => navigate('attacks')}><span>{language === 'uk' ? 'Завершені запуски' : 'Completed runs'}</span><strong>{dataState === 'ready' ? taskCounts?.completed ?? '—' : '—'}</strong></button>
+        </div>
+        <Surface title={language === 'uk' ? 'Останні запуски' : 'Recent runs'}>
+          {dataState === 'ready' && tasks.length ? tasks.slice(0, 6).map((task) => <button className="overview-run" key={task.id} type="button" onClick={() => { setSelectedTaskId(task.id); navigate('attacks') }}><span><strong>{modules.find((module) => module.id === task.scenario)?.[language === 'uk' ? 'titleUk' : 'titleEn'] ?? task.scenario}</strong><small>{task.agentName} · {new Date(task.createdAt).toLocaleString(language === 'uk' ? 'uk-UA' : 'en-GB')}</small></span><em className={`run-status status-${task.status}`}>{statusLabel(task.status, language)}</em></button>) : <EmptyState title={dataState === 'error' ? (language === 'uk' ? 'Дані недоступні' : 'Data unavailable') : dataState === 'loading' ? (language === 'uk' ? 'Завантаження' : 'Loading') : (language === 'uk' ? 'Запусків ще немає' : 'No runs yet')} text={dataState === 'error' ? (language === 'uk' ? 'Не вдалося отримати дані з сервера.' : 'Could not load data from the server.') : dataState === 'ready' ? (language === 'uk' ? 'Виберіть сценарій та підключеного агента для першої симуляції.' : 'Choose a scenario and connected agent to run the first simulation.') : ''} />}
+        </Surface>
+      </div>
     )
   }
 
@@ -481,36 +448,28 @@ function App() {
     )
   }
 
-  function renderTasks() {
-    return (
-      <Surface title={t.taskList} meta={String(tasks.length).padStart(2, '0')}>
-        <div className="table-head" aria-hidden="true"><span>{t.task}</span><span>{t.agent}</span><span>{t.status}</span></div>
-        {tasks.length ? tasks.map((task) => <button className={selectedTaskId === task.id ? 'data-row selected' : 'data-row'} type="button" key={task.id} onClick={() => setSelectedTaskId(task.id)}>
-          <strong>{task.scenario} #{task.id}</strong><span>{task.agentName}</span><em>{task.status}</em>
-        </button>) : <EmptyState title={t.noTasks} text={t.noTasksHint} />}
-      </Surface>
-    )
-  }
-
   function renderAgents() {
     return (
-      <Surface title={t.agentList} meta={String(connectedAgents.length).padStart(2, '0')}>
+      <div className="stack"><div className="section-tabs" aria-label={t.pages.agents}>
+        <button type="button" aria-pressed={agentView === 'list'} className={agentView === 'list' ? 'selected' : ''} onClick={() => setAgentView('list')}>{t.connectedAgents}</button>
+        <button type="button" aria-pressed={agentView === 'connect'} className={agentView === 'connect' ? 'selected' : ''} onClick={() => setAgentView('connect')}>{language === 'uk' ? 'Додати агента' : 'Add agent'}</button>
+      </div>{agentView === 'connect' ? renderConnect() : <Surface title={t.agentList} meta={agentsState === 'ready' ? String(connectedAgents.length) : '—'}>
         <div className="table-head" aria-hidden="true"><span>{t.agent}</span><span>{t.lastSeen}</span><span>{t.status}</span></div>
         {agentsState === 'error' ? <EmptyState title={t.agentsUnavailable} text={t.agentsUnavailableHint} /> : connectedAgents.length ? (
           <div>
             {connectedAgents.map((agent) => (
-              <button className={selectedAgentId === agent.id ? 'data-row selected' : 'data-row'} key={agent.id} type="button" aria-pressed={selectedAgentId === agent.id} onClick={() => setSelectedAgentId(agent.id)}>
+              <button className={selectedAgent?.id === agent.id ? 'data-row selected' : 'data-row'} key={agent.id} type="button" aria-pressed={selectedAgent?.id === agent.id} onClick={() => setSelectedAgentId(agent.id)}>
                 <strong>{agent.name}</strong><span>{new Date(agent.lastSeen).toLocaleTimeString(language === 'uk' ? 'uk-UA' : 'en-GB')}</span><em>{t.online}</em>
               </button>
             ))}
           </div>
-        ) : <EmptyState title={t.noAgents} text={t.noAgentsHint} />}
-      </Surface>
+        ) : <EmptyState title={t.noAgents} text={language === 'uk' ? 'Додайте агента через сусідню вкладку.' : 'Add an agent from the next tab.'} />}
+      </Surface>}</div>
     )
   }
 
   function renderScenarios() {
-    const selectedModule = modules.find((module) => module.id === selectedModuleId) ?? modules[0]
+    const selectedModule = filteredModules.find((module) => module.id === selectedModuleId) ?? filteredModules[0]
     return (
       <div className="stack scenario-stack">
         <Surface title={t.description} className="description-surface">
@@ -520,16 +479,16 @@ function App() {
             {!!selectedModule.requires?.length && <p>{language === 'uk' ? 'Потрібні команди: ' : 'Required commands: '}{selectedModule.requires.join(', ')}. {language === 'uk' ? 'Агент перевірить їх до симуляції.' : 'The agent checks them before the simulation.'}</p>}
             {selectedModule.sourceUrl && <a href={selectedModule.sourceUrl} target="_blank" rel="noreferrer">{selectedModule.sourceLabel ?? 'Source'} ↗</a>}
             {(language === 'uk' ? selectedModule.limitationsUk : selectedModule.limitationsEn) && <p>{language === 'uk' ? selectedModule.limitationsUk : selectedModule.limitationsEn}</p>}
-          </div> : <EmptyState title={t.noScenario} text={t.noScenarioHint} />}
+          </div> : <EmptyState title={dataState === 'error' ? (language === 'uk' ? 'Каталог недоступний' : 'Catalog unavailable') : dataState === 'loading' ? (language === 'uk' ? 'Завантаження' : 'Loading') : t.noScenario} text={dataState === 'error' ? (language === 'uk' ? 'Не вдалося отримати сценарії з сервера.' : 'Could not load scenarios from the server.') : dataState === 'ready' ? t.noScenarioHint : ''} />}
         </Surface>
-        <div className="launch-bar">
+        {selectedModule && <div className="launch-bar">
           <div><span className="section-label">{t.launch}</span><p>{language === 'uk' ? 'Виберіть підключеного агента для цієї ОС' : 'Select a connected agent for this OS'}</p>
             <select value={selectedModule && connectedAgents.some((agent) => agent.id === launchAgentId && agentSupports(agent, selectedModule)) ? launchAgentId : ''} onChange={(event) => setLaunchAgentId(event.target.value)}>
               <option value="">{language === 'uk' ? 'Вибрати агента' : 'Select agent'}</option>
               {selectedModule && connectedAgents.filter((agent) => agentSupports(agent, selectedModule)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>{launchError && <p className="form-error" role="alert">{launchError}</p>}</div>
           <button className="primary-button" type="button" disabled={!selectedModule || !connectedAgents.some((agent) => agent.id === launchAgentId && agentSupports(agent, selectedModule))} onClick={() => { setLaunchError(''); setLaunchOpen(true) }}>{t.launchButton} <span aria-hidden="true">↗</span></button>
-        </div>
+        </div>}
       </div>
     )
   }
@@ -570,41 +529,42 @@ function App() {
             </div>
           </div>
         </Surface>
-        <Surface title={t.addInstance} meta={t.local}>
-          <form className="credential-form" onSubmit={addInstance}>
-            <div className="field">
-              <label htmlFor="instance-name">{t.instanceName}</label>
-              <input id="instance-name" name="instance-name" autoComplete="off" value={instanceName} onChange={(event) => setInstanceName(event.target.value)} required />
-            </div>
-            <div className="field">
-              <label htmlFor="instance-address">{t.instanceAddress}</label>
-              <input id="instance-address" name="instance-address" autoComplete="off" value={instanceAddress} onChange={(event) => setInstanceAddress(event.target.value)} required />
-            </div>
-            <button className="primary-button" type="submit">{t.add} <span aria-hidden="true">↗</span></button>
-          </form>
-        </Surface>
-        <Surface title={t.instanceList} meta={String(instances.length).padStart(2, '0')}>
-          {instances.length ? (
-            <div className="instance-list" aria-live="polite">
-              {instances.map((instance, index) => (
-                <button className={selectedInstanceId === instance.id ? 'instance-row selected' : 'instance-row'} type="button" aria-pressed={selectedInstanceId === instance.id} key={instance.id} onClick={() => setSelectedInstanceId(instance.id)}>
-                  <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
-                  <span className="instance-copy"><strong>{instance.name}</strong><small>{instance.address}</small></span>
-                  <span className="instance-state">{t.notConnected}</span>
-                </button>
-              ))}
-            </div>
-          ) : <EmptyState title={t.noInstances} text={t.noInstancesHint} />}
-        </Surface>
       </div>
     )
   }
 
+  function renderRuns() {
+    if (!tasks.length) {
+      const title = dataState === 'error' ? (language === 'uk' ? 'Запуски недоступні' : 'Runs unavailable')
+        : dataState === 'loading' ? (language === 'uk' ? 'Завантаження' : 'Loading')
+          : (language === 'uk' ? 'Запусків ще немає' : 'No runs yet')
+      const text = dataState === 'error' ? (language === 'uk' ? 'Не вдалося отримати запуски з сервера.' : 'Could not load runs from the server.')
+        : dataState === 'ready' ? (language === 'uk' ? 'Виберіть сценарій та агента для першої симуляції.' : 'Choose a scenario and agent for the first simulation.') : ''
+      return <div className="runs-empty">
+        <EmptyState title={title} text={text} />
+        {dataState === 'ready' && <button type="button" className="primary-button" onClick={() => navigate('scenarios')}>{language === 'uk' ? 'Відкрити сценарії' : 'Browse scenarios'}</button>}
+      </div>
+    }
+    return <div className="runs-layout">
+      <aside className="runs-list" aria-label={language === 'uk' ? 'Список запусків' : 'Runs list'}>
+        <div className="runs-list-heading"><h2>{t.pages.attacks}</h2><span>{tasks.length}</span></div>
+        {tasks.map((task) => <button type="button" key={task.id} className={currentTask?.id === task.id ? 'run-item selected' : 'run-item'} onClick={() => setSelectedTaskId(task.id)}>
+          <span className="run-item-title">{modules.find((module) => module.id === task.scenario)?.[language === 'uk' ? 'titleUk' : 'titleEn'] ?? task.scenario}</span>
+          <span className="run-item-meta">#{task.id} · {task.agentName}</span>
+          <span className={`run-status status-${task.status}`}>{statusLabel(task.status, language)}</span>
+        </button>)}
+      </aside>
+      <AttackMap language={language} task={currentTask} events={visibleTaskEvents} modules={modules} />
+    </div>
+  }
+
   function renderContext() {
     if (page === 'scenarios') {
+      const selectedVisibleModule = filteredModules.find((module) => module.id === selectedModuleId) ?? filteredModules[0]
       return (
-        <Surface title={t.availableScenarios} meta={`${modules.length} · ${new Set(modules.map((module) => module.clusterId ?? module.id.split('-').slice(0, 2).join('-'))).size} UAC`} className="context-surface scenario-list">
-          {modules.length ? modules.map((module) => <button className={selectedModuleId === module.id || (!selectedModuleId && module.id === modules[0].id) ? 'data-row selected' : 'data-row'} key={module.id} type="button" onClick={() => setSelectedModuleId(module.id)}><strong>{language === 'uk' ? module.titleUk : module.titleEn}</strong></button>) : <EmptyState title={t.noScenario} text={t.noScenarioHint} />}
+        <Surface title={t.availableScenarios} meta={dataState === 'ready' ? `${filteredModules.length} / ${modules.length}` : '—'} className="context-surface scenario-list">
+          <div className="scenario-filters"><input type="search" value={scenarioQuery} onChange={(event) => setScenarioQuery(event.target.value)} placeholder={language === 'uk' ? 'Пошук UAC або назви' : 'Search UAC or title'} aria-label={language === 'uk' ? 'Пошук сценаріїв' : 'Search scenarios'} /><div className="scenario-platforms" aria-label={language === 'uk' ? 'Операційна система' : 'Operating system'}>{(['all', 'linux', 'windows'] as const).map((platform) => <button key={platform} type="button" className={scenarioPlatform === platform ? 'selected' : ''} aria-pressed={scenarioPlatform === platform} onClick={() => setScenarioPlatform(platform)}>{platform === 'all' ? (language === 'uk' ? 'Усі' : 'All') : platform === 'linux' ? 'Linux' : 'Windows'}</button>)}</div></div>
+          {filteredModules.length ? <div className="scenario-rows">{filteredModules.map((module) => <button className={selectedVisibleModule?.id === module.id ? 'data-row selected' : 'data-row'} key={module.id} type="button" onClick={() => setSelectedModuleId(module.id)}><strong>{language === 'uk' ? module.titleUk : module.titleEn}</strong><span>{module.id} · {module.platform}</span></button>)}</div> : <EmptyState title={dataState === 'error' ? (language === 'uk' ? 'Каталог недоступний' : 'Catalog unavailable') : dataState === 'loading' ? (language === 'uk' ? 'Завантаження' : 'Loading') : modules.length ? (language === 'uk' ? 'Нічого не знайдено' : 'No matches') : t.noScenario} text={dataState === 'error' ? (language === 'uk' ? 'Не вдалося отримати список.' : 'Could not load the list.') : dataState === 'ready' && modules.length ? (language === 'uk' ? 'Змініть пошук або фільтр ОС.' : 'Change the search or OS filter.') : dataState === 'ready' ? t.noScenarioHint : ''} />}
         </Surface>
       )
     }
@@ -613,47 +573,6 @@ function App() {
       return (
         <Surface title={t.storage} meta={t.server} className="context-surface">
           <div className="context-note"><span className="note-marker" aria-hidden="true" /><p>{t.storageHint}</p></div>
-        </Surface>
-      )
-    }
-
-    if (page === 'connect') {
-      return (
-        <Surface title={t.connectedAgents} meta={String(connection?.agents.length ?? 0).padStart(2, '0')} className="context-surface">
-          {connection?.agents.length ? (
-            <div className="agent-list">{connection.agents.map((agent) => <div key={agent.id}>{agent.name}</div>)}</div>
-          ) : <EmptyState title={t.noConnectedAgents} text={t.pullLater} />}
-        </Surface>
-      )
-    }
-
-    if (page === 'tasks') {
-      const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0]
-      return (
-        <Surface title={t.taskDetails} className="context-surface">
-          {selectedTask ? <div className="detail-lines">
-            <div className="detail-line"><span>{t.task}</span><strong>{selectedTask.scenario} #{selectedTask.id}</strong></div>
-            <div className="detail-line"><span>{t.agent}</span><strong>{selectedTask.agentName}</strong></div>
-            <div className="detail-line"><span>{t.status}</span><strong>{selectedTask.status}</strong></div>
-            {selectedTask.result.evidence?.preflight?.ok === false && <div className="detail-line"><span>{language === 'uk' ? 'Відсутні залежності' : 'Missing dependencies'}</span><strong>{selectedTask.result.evidence.preflight.missing}</strong></div>}
-            {modules.find((module) => module.id === selectedTask.scenario)?.flow ? modules.find((module) => module.id === selectedTask.scenario)!.flow!.map((stage) => <div className="detail-line" key={stage.id}><span>{language === 'uk' ? stage.titleUk : stage.titleEn}</span><strong>{selectedTask.result.evidence?.phases?.[stage.id] ? '✓' : '—'}</strong></div>) : <>
-              <div className="detail-line"><span>{language === 'uk' ? 'Конфігурація' : 'Config'}</span><strong>{selectedTask.result.evidence?.config ? '✓' : '—'}</strong></div>
-              <div className="detail-line"><span>WireGuard</span><strong>{selectedTask.result.evidence?.tunnel ? '✓' : '—'}</strong></div>
-              <div className="detail-line"><span>curl</span><strong>{selectedTask.result.evidence?.download ? '✓' : '—'}</strong></div>
-              <div className="detail-line"><span>{language === 'uk' ? 'Запуск' : 'Execution'}</span><strong>{selectedTask.result.evidence?.executed ? '✓' : '—'}</strong></div>
-            </>}
-            {selectedTask.result.evidence?.metrics && Object.entries(selectedTask.result.evidence.metrics).map(([name, value]) => <div className="detail-line" key={name}><span>{metricLabel(name, language)}</span><strong>{metricValue(value, language)}</strong></div>)}
-            {selectedTask.result.evidence?.observedAt && <div className="detail-line"><span>{t.lastSeen}</span><strong>{selectedTask.result.evidence.observedAt}</strong></div>}
-            {selectedTask.result.evidence?.survey && <>
-              <p className="impact-label">{language === 'uk' ? 'Потенційно доступні файли, якщо запуск не було заблоковано' : 'Potentially accessible files if execution was not blocked'}</p>
-              <div className="detail-line"><span>{language === 'uk' ? 'Усього' : 'Total'}</span><strong>{selectedTask.result.evidence.survey.files.toLocaleString()} · {formatBytes(selectedTask.result.evidence.survey.bytes)}</strong></div>
-              {Object.entries(selectedTask.result.evidence.survey.categories).map(([category, values]) => (
-                <div className="detail-line" key={category}><span>{({ credentials: language === 'uk' ? 'Ключі й конфіги' : 'Keys & configs', messengers: language === 'uk' ? 'Месенджери' : 'Messengers', browsers: language === 'uk' ? 'Браузери' : 'Browsers', documents: language === 'uk' ? 'Документи' : 'Documents', source: language === 'uk' ? 'Вихідний код' : 'Source code', other: language === 'uk' ? 'Інше' : 'Other' } as Record<string, string>)[category] ?? category}</span><strong>{values.files.toLocaleString()} · {formatBytes(values.bytes)}</strong></div>
-              ))}
-              <p className="impact-label">{selectedTask.result.evidence.survey.truncated ? (language === 'uk' ? 'Сканування обмежено часом або кількістю файлів.' : 'Survey limited by time or file count.') : (language === 'uk' ? 'Лише метадані; вміст не передавався.' : 'Metadata only; contents were not transferred.')}</p>
-              <p className="impact-label">{language === 'uk' ? 'Завершення завдання не є вердиктом EDR.' : 'Task completion is not an EDR verdict.'}</p>
-            </>}
-          </div> : <EmptyState title={t.noTaskSelected} text={t.noTasksHint} />}
         </Surface>
       )
     }
@@ -673,23 +592,12 @@ function App() {
             <div className="detail-line"><span>{t.uptime}</span><strong>{selectedAgent.info?.uptimeSeconds ?? '—'}</strong></div>
             <button className="outline-button disconnect-agent" type="button" disabled={disconnectingAgentId === selectedAgent.id} onClick={() => { void disconnectAgent(selectedAgent.id) }}>{t.disconnect}</button>
             {agentActionError && <p className="form-error" role="alert">{agentActionError}</p>}
-          </div> : <EmptyState title={t.noAgentSelected} text={t.noAgentsHint} />}
+          </div> : <EmptyState title={t.noAgents} text={language === 'uk' ? 'Додайте агента через сусідню вкладку.' : 'Add an agent from the next tab.'} />}
         </Surface>
       )
     }
 
-    return (
-      <Surface title={t.state} className="context-surface">
-        <div className="detail-lines">
-          <div className="detail-line"><span>{t.pages.creds}</span><strong>01</strong></div>
-          <div className="detail-line"><span>{t.pages.tasks}</span><strong>00</strong></div>
-          <div className="detail-line"><span>{t.pages.scenarios}</span><strong>00</strong></div>
-          <div className="detail-line"><span>{t.pages.agents}</span><strong>{String(connectedAgents.length).padStart(2, '0')}</strong></div>
-          <div className="detail-line"><span>{t.pages.connect}</span><strong>{String(instances.length).padStart(2, '0')}</strong></div>
-          <div className="detail-line"><span>{t.pages.attacks}</span><strong>00</strong></div>
-        </div>
-      </Surface>
-    )
+    return null
   }
 
   return (
@@ -703,21 +611,6 @@ function App() {
             ))}
           </nav>
           <div className="header-tools">
-            <span className="session-label">{t.session}</span>
-            <div className="theme-switch" aria-label={language === 'uk' ? 'Колірна тема' : 'Color theme'}>
-              {themes.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`theme-dot ${theme === item.id ? 'active' : ''}`}
-                  style={{ '--dot-color': item.color } as React.CSSProperties}
-                  title={language === 'uk' ? item.labelUk : item.labelEn}
-                  aria-label={language === 'uk' ? item.labelUk : item.labelEn}
-                  aria-pressed={theme === item.id}
-                  onClick={() => setTheme(item.id)}
-                />
-              ))}
-            </div>
             <div className="language-switch" aria-label="Language / Мова">
               <button type="button" className={language === 'en' ? 'selected' : ''} aria-pressed={language === 'en'} onClick={() => changeLanguage('en')}>EN</button>
               <span aria-hidden="true">/</span>
@@ -730,46 +623,23 @@ function App() {
         </div>
       </header>
 
-      <div className="workspace">
-        <aside className="logs-panel" aria-label={t.logsLabel}>
-          <div className="logs-heading"><h2>{t.logs}</h2><span>{(page === 'attacks' || page === 'tasks') && currentTask ? `#${currentTask.id}` : t.server}</span></div>
-          <div className="logs-list" aria-live="polite">
-            {(page === 'attacks' || page === 'tasks') && currentTask ? (
-              visibleTaskEvents.length ? [...visibleTaskEvents].reverse().map((entry) => <div className="log-entry" key={entry.id}>
-                <div><time>{new Date(entry.time).toLocaleTimeString(language === 'uk' ? 'uk-UA' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time><span className="log-level">{entry.source}</span></div>
-                <span>{eventLabel(entry.code, language, modules)}</span>
-              </div>) : <p className="logs-state">{language === 'uk' ? 'Очікування подій завдання.' : 'Waiting for task events.'}</p>
-            ) : <>
-            {logsState === 'loading' && <p className="logs-state">{t.logsLoading}</p>}
-            {logsState === 'error' && <p className="logs-state">{t.logsError}</p>}
-            {logsState === 'ready' && logs.length === 0 && <p className="logs-state">{t.logsEmpty}</p>}
-            {logsState === 'ready' && logs.map((entry, index) => (
-              <div className="log-entry" key={`${entry.time}-${index}`}>
-                <div><time>{new Date(entry.time).toLocaleTimeString(language === 'uk' ? 'uk-UA' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}</time><span className={entry.level === 'WARN' ? 'log-level warn' : 'log-level'}>{entry.level}</span></div>
-                <span>{entry.message}</span>
-              </div>
-            ))}</>}
-          </div>
-          <p className="logs-caption">{(page === 'attacks' || page === 'tasks') && currentTask ? (language === 'uk' ? 'Події цього запуску з PostgreSQL.' : 'Events for this run from PostgreSQL.') : t.logsCaption}</p>
-        </aside>
-
+      <div className={`workspace workspace-${page}${page === 'agents' && agentView === 'connect' ? ' workspace-connect' : ''}`}>
         <main className={page === 'attacks' ? 'main-pane attack-pane' : 'main-pane'}>
           {page === 'main' && renderMain()}
           {page === 'creds' && renderCreds()}
-          {page === 'tasks' && renderTasks()}
           {page === 'scenarios' && renderScenarios()}
           {page === 'agents' && renderAgents()}
-          {page === 'connect' && renderConnect()}
-          {page === 'attacks' && <AttackMap language={language} task={currentTask} tasks={tasks} events={visibleTaskEvents} modules={modules} onSelectTask={setSelectedTaskId} />}
+          {page === 'attacks' && renderRuns()}
         </main>
 
-        {page !== 'attacks' && <aside className="context-pane" aria-label={t.contextLabel}>{renderContext()}</aside>}
+        {(page === 'scenarios' || page === 'creds' || (page === 'agents' && agentView === 'list')) && <aside className="context-pane" aria-label={t.contextLabel}>{renderContext()}</aside>}
+        {page !== 'attacks' && <details className="server-activity"><summary>{language === 'uk' ? 'Активність сервера' : 'Server activity'} <span>{logsState === 'ready' ? logs.length : '—'}</span></summary><div className="server-activity-list" aria-live="polite">{logsState === 'loading' && <p>{t.logsLoading}</p>}{logsState === 'error' && <p>{t.logsError}</p>}{logsState === 'ready' && logs.length === 0 && <p>{t.logsEmpty}</p>}{logsState === 'ready' && logs.map((entry, index) => <div className="server-activity-row" key={`${entry.time}-${index}`}><time>{new Date(entry.time).toLocaleTimeString(language === 'uk' ? 'uk-UA' : 'en-GB')}</time><span className={entry.level === 'WARN' ? 'activity-warn' : ''}>{entry.level}</span><p>{entry.message}</p></div>)}</div></details>}
       </div>
       {launchOpen && <div className="launch-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setLaunchOpen(false) }}>
         <div className="launch-dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
           <div className="launch-dialog-head"><span className="attack-kicker">{language === 'uk' ? 'НОВИЙ ЗАПУСК' : 'NEW RUN'}</span><button type="button" aria-label={language === 'uk' ? 'Закрити' : 'Close'} onClick={() => setLaunchOpen(false)}>×</button></div>
           <h2 id="launch-title">{language === 'uk' ? 'Запустити симуляцію' : 'Start simulation'}</h2>
-          <p>{modules.find((module) => module.id === selectedModuleId)?.id ?? modules[0]?.id} · {connectedAgents.find((agent) => agent.id === launchAgentId)?.name}</p>
+          <p>{(filteredModules.find((module) => module.id === selectedModuleId) ?? filteredModules[0])?.id} · {connectedAgents.find((agent) => agent.id === launchAgentId)?.name}</p>
           <label htmlFor="launch-verbosity">{language === 'uk' ? 'Деталізація журналу' : 'Log verbosity'}</label>
           <select id="launch-verbosity" value={verbosity} onChange={(event) => setVerbosity(event.target.value as typeof verbosity)}>
             <option value="standard">{language === 'uk' ? 'Стандартна — ключові події' : 'Standard — key events'}</option>
@@ -777,7 +647,7 @@ function App() {
             <option value="trace">{language === 'uk' ? 'Трасування — перевірки й етапи' : 'Trace — checks and steps'}</option>
           </select>
           {launchError && <p className="launch-dialog-error" role="alert">{launchError}</p>}
-          <div className="launch-dialog-actions"><button type="button" className="outline-button" onClick={() => setLaunchOpen(false)}>{language === 'uk' ? 'Скасувати' : 'Cancel'}</button><button type="button" className="primary-button" disabled={launching} onClick={() => { void launchModule() }}>{launching ? (language === 'uk' ? 'Запуск…' : 'Starting…') : (language === 'uk' ? 'Старт атаки →' : 'Start attack →')}</button></div>
+          <div className="launch-dialog-actions"><button type="button" className="outline-button" onClick={() => setLaunchOpen(false)}>{language === 'uk' ? 'Скасувати' : 'Cancel'}</button><button type="button" className="primary-button" disabled={launching} onClick={() => { void launchModule() }}>{launching ? (language === 'uk' ? 'Запуск…' : 'Starting…') : (language === 'uk' ? 'Запустити симуляцію' : 'Run simulation')}</button></div>
         </div>
       </div>}
     </div>
