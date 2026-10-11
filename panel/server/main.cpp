@@ -1035,23 +1035,24 @@ std::string login_page(bool ukrainian) {
   const std::string error = ukrainian ? "Неправильні дані доступу" : "Invalid credentials";
   return "<!doctype html><html lang='" + std::string(ukrainian ? "uk" : "en") +
          "'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+         "<link rel='icon' type='image/png' href='/logo.png'>"
          "<title>" + title + " · certua-advisory-lab</title><style>"
          "@font-face{font-family:PlexLatin;font-weight:400;src:url('/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2')}"
          "@font-face{font-family:PlexLatin;font-weight:600;src:url('/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2')}"
          "@font-face{font-family:PlexCyrillic;font-weight:400;src:url('/fonts/ibm-plex-sans-cyrillic-400-normal.woff2') format('woff2')}"
          "@font-face{font-family:PlexCyrillic;font-weight:600;src:url('/fonts/ibm-plex-sans-cyrillic-600-normal.woff2') format('woff2')}"
-         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#0d0f12;color:#f3f4f6;font:14px PlexLatin,sans-serif}"
+         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#17212b;color:#f0f5f6;font:14px PlexLatin,sans-serif}"
          "html[lang=uk] body{font-family:PlexCyrillic,PlexLatin,sans-serif}"
-         "main{width:min(420px,100%);border:1px solid #343b44;background:#15181c;padding:32px}"
+         "main{width:min(420px,100%);border:1px solid #394b58;background:#1d2933;padding:32px}"
          ".brand{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-weight:600}"
-         ".brand b{display:grid;place-items:center;width:25px;height:25px;border-radius:5px;background:#302126;color:#e35261}"
+         ".brand-mark{display:block;flex:0 0 38px;width:38px;height:52px;background:url('/logo.png') center/94px 70px no-repeat}"
          "h1{font-size:22px;margin:0 0 24px;letter-spacing:-.03em}"
-         "label{display:block;margin:16px 0 7px;color:#b7bec8;font-size:12px;font-weight:600}"
-         "input{width:100%;height:42px;padding:8px 11px;border:1px solid #4b5560;border-radius:3px;background:#101216;color:#f3f4f6;font:inherit}"
-         "input:focus-visible,button:focus-visible{outline:2px solid #e35261;outline-offset:2px}"
-         "button{width:100%;height:42px;margin-top:24px;border:1px solid #e35261;border-radius:4px;background:#e35261;color:#101216;font:inherit;font-size:13px;font-weight:600;cursor:pointer}"
-         "button:hover{background:#f37480}#error{min-height:18px;color:#f37480;margin-top:12px;font-size:12px}</style>"
-         "<main><div class='brand'><b aria-hidden='true'>C</b><span>certua-advisory-lab</span></div><h1>" + title + "</h1>"
+         "label{display:block;margin:16px 0 7px;color:#becbd2;font-size:12px;font-weight:600}"
+         "input{width:100%;height:42px;padding:8px 11px;border:1px solid #526877;border-radius:3px;background:#17232d;color:#f0f5f6;font:inherit}"
+         "input:focus-visible,button:focus-visible{outline:2px solid #36c8bf;outline-offset:2px}"
+         "button{width:100%;height:42px;margin-top:24px;border:1px solid #36c8bf;border-radius:4px;background:#36c8bf;color:#11232b;font:inherit;font-size:13px;font-weight:600;cursor:pointer}"
+         "button:hover{background:#65ded4}#error{min-height:18px;color:#f2a2a8;margin-top:12px;font-size:12px}</style>"
+         "<main><div class='brand'><span class='brand-mark' aria-hidden='true'></span><span>certua-advisory-lab</span></div><h1>" + title + "</h1>"
          "<form><label for='username'>" + username + "</label><input id='username' autocomplete='username' required>"
          "<label for='password'>" + password + "</label><input id='password' type='password' autocomplete='current-password' required>"
          "<button>" + submit + "</button><div id='error' role='alert'></div></form></main><script>"
@@ -1370,6 +1371,17 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       } else {
         reply(client, 200, "text/html; charset=utf-8",
               login_page(query_value(target, "lang") == "uk"), head_only);
+      }
+      close(client);
+      return;
+    }
+    if ((method == "GET" || method == "HEAD") && path == "/logo.png") {
+      std::ifstream stream(dist_dir / "logo.png", std::ios::binary);
+      if (stream) {
+        const std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        reply(client, 200, "image/png", body, head_only);
+      } else {
+        reply(client, 404, "text/plain", "Not found", head_only);
       }
       close(client);
       return;

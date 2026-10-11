@@ -604,7 +604,7 @@ function App() {
     <div className="app-shell">
       <header className="site-header">
         <div className="header-inner">
-          <a className="brand" href={`/main${window.location.search}`} onClick={(event) => { event.preventDefault(); navigate('main') }}><span className="brand-mark" aria-hidden="true">C</span><span>certua-advisory-lab</span></a>
+          <a className="brand" href={`/main${window.location.search}`} onClick={(event) => { event.preventDefault(); navigate('main') }}><span className="brand-mark" aria-hidden="true" /><span>certua-advisory-lab</span></a>
           <nav className="navigation" ref={navigationRef} aria-label={t.navLabel}>
             {pages.map((item) => (
               <a key={item} href={`/${item}${window.location.search}`} className={page === item ? 'nav-link active' : 'nav-link'} aria-current={page === item ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(item) }}>{t.pages[item]}</a>
