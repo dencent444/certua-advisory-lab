@@ -70,6 +70,10 @@ const metricNames: Record<string, [string, string]> = {
   overwrittenBytes: ['Overwritten bytes', 'Перезаписано байтів'], blockDevicesWritten: ['Block devices written', 'Записано блокових пристроїв'],
   removedFiles: ['Removed files', 'Видалено файлів'], wholeDisks: ['Whole disks', 'Цілих дисків'],
   deviceWrites: ['Device writes', 'Записів на пристрої'], servicesStopped: ['Services stopped', 'Зупинено служб'],
+  xorKeyBytes: ['XOR key bytes', 'Байтів XOR-ключа'], loopbackDownloads: ['Loopback downloads', 'Завантажень через loopback'],
+  installerExitCode: ['Installer exit code', 'Код завершення інсталятора'], ateraInstalled: ['ATERA installed', 'ATERA встановлено'],
+  privateKeyUploaded: ['Private key uploaded', 'Приватний ключ передано'],
+  opensshServiceChanged: ['OpenSSH service changed', 'Службу OpenSSH змінено'], torStarted: ['Tor started', 'Tor запущено'],
 }
 export function metricLabel(name: string, language: Language): string { return metricNames[name]?.[language === 'uk' ? 1 : 0] ?? name }
 export function metricValue(value: string | number | boolean, language: Language): string {

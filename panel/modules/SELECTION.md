@@ -22,10 +22,12 @@ One runnable scenario represents one documented UAC cluster on one supported OS.
 | UAC-0212 | Windows | Supplier LNK, PowerShell, Run-key foothold, document staging | Local LNK process chain, unique temporary HKCU Run value, and `robocopy` over module-owned decoys. No real documents or external transfer. |
 | UAC-0020 | Windows | CHM HTML content, PowerShell stage, SPECTR/FIRMACHAGENT files, two tasks | HTML stand-in, inert DLL names, decoy ZIP, and two temporary tasks. No active CHM exploit or browser collection. |
 | UAC-0200 | Windows | Messenger archive, VBS/BAT handoff, DarkCrystal stage | Local ZIP substitute, VBS/BAT execution, and benign EXE copy. No password RAR SFX, Signal access, or RAT. |
+| UAC-0180 | Windows | Procurement PDF link, GLUEEGG XOR stage, DROPCLUE BAT/curl, ATERA MSI | Module-owned ZIP/PDF, a 128-byte XOR round trip, real BAT/curl loopback fetch, and `msiexec` rejection of an invalid fixture. No malware or ATERA installation. |
+| UAC-0125 | Windows | Army+ installer lure, PowerShell, SSH key staging, Tor hidden-service setup | Module-owned EXE lookalike, test RSA pair, public-key-only loopback POST, and inert Tor config. No OpenSSH/Tor service or private-key transfer. |
 
 Each row is one **bounded chain simulation** of a real, separately identified CERT-UA cluster. A passing phase means that the described lab signal occurred; it does not mean the malware ran or that an EDR would detect it. Windows chains need a Windows agent for runtime verification.
 
-Sources: [CERT-UA UAC-0145](https://cert.gov.ua/article/6318863), [CERT-UA UAC-0002](https://cert.gov.ua/article/6278706), [SSSCIP H1 2024 report](https://cip.gov.ua/services/cm/api/attachment/download?id=65898), [CERT-UA UAC-0082](https://cert.gov.ua/article/39518), [ESET UAC-0082 analysis](https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/), [CERT-UA UAC-0010](https://cert.gov.ua/article/18365), [CERT-UA UAC-0010 summary](https://cert.gov.ua/article/5160737), [CERT-UA UAC-0063](https://cert.gov.ua/article/6280129), [CERT-UA UAC-0185](https://cert.gov.ua/article/6281632). New cluster reports are linked individually in each manifest.
+Sources: [CERT-UA UAC-0145](https://cert.gov.ua/article/6318863), [CERT-UA UAC-0002](https://cert.gov.ua/article/6278706), [SSSCIP H1 2024 report](https://cip.gov.ua/services/cm/api/attachment/download?id=65898), [CERT-UA UAC-0082](https://cert.gov.ua/article/39518), [ESET UAC-0082 analysis](https://www.welivesecurity.com/2022/04/12/industroyer2-industroyer-reloaded/), [CERT-UA UAC-0010](https://cert.gov.ua/article/18365), [CERT-UA UAC-0010 summary](https://cert.gov.ua/article/5160737), [CERT-UA UAC-0063](https://cert.gov.ua/article/6280129), [CERT-UA UAC-0185](https://cert.gov.ua/article/6281632), [CERT-UA UAC-0180](https://cert.gov.ua/article/6280099), [CERT-UA UAC-0125](https://cert.gov.ua/article/6281701). Other cluster reports are linked in their manifests.
 
 ## Do not port as separate scenarios
 
@@ -44,7 +46,7 @@ This is a **selection register**, not the complete CERT-UA cluster database. The
 | Cluster | Primary report | Why it is pending |
 | --- | --- | --- |
 | UAC-0099 | [CERT-UA, 21 July 2026](https://cert.gov.ua/article/6318634) | Review the Notepad++ plugin loading chain and pick a testable DLL-loading signal; a standalone Notepad++ launch would be a weak fragment. |
-| UAC-0180 | [CERT-UA, 7 April 2026](https://cert.gov.ua/article/6280099) | Need a trustworthy GLUEEGG / ATERA test fixture before claiming that installer chain is reproducible. |
+| UAC-0245 | [CERT-UA, 30 September 2025](https://cert.gov.ua/article/6285549) | Need an inert XLL that actually loads in Excel before claiming the CABINETRAT delivery chain. |
 
 CERT-UA [merged UAC-0247 into UAC-0244](https://cert.gov.ua/article/6288271); the former ID is not counted as another independent cluster.
 

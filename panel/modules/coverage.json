@@ -6,10 +6,10 @@
     "sourceUrl": "https://cip.gov.ua/en/faqs/cyber-threat-overview-and-defense-strategies-in-2025-cert-ua-s-experience"
   },
   "coverage": {
-    "runnableScenarios": 16,
+    "runnableScenarios": 18,
     "linuxScenarios": 3,
-    "windowsScenarios": 13,
-    "distinctUacIds": 16
+    "windowsScenarios": 15,
+    "distinctUacIds": 18
   },
   "clusters": [
     {
@@ -76,12 +76,30 @@
       ]
     },
     {
+      "id": "UAC-0125",
+      "sources": [
+        "https://cert.gov.ua/article/6281701"
+      ],
+      "modules": [
+        "uac-0125-windows"
+      ]
+    },
+    {
       "id": "UAC-0145",
       "sources": [
         "https://cert.gov.ua/article/6318863"
       ],
       "modules": [
         "uac-0145-linux"
+      ]
+    },
+    {
+      "id": "UAC-0180",
+      "sources": [
+        "https://cert.gov.ua/article/6280099"
+      ],
+      "modules": [
+        "uac-0180-windows"
       ]
     },
     {

@@ -2,7 +2,7 @@
 
 Run a bounded simulation of a documented CERT-UA chain on a test host, then compare the resulting events with your EDR telemetry. The panel shows each stage, the agent's result, and the server-side timeline for that run.
 
-The current catalog has [16 scenarios across 16 UAC clusters](panel/modules/coverage.json): 3 Linux and 13 Windows. Each module links to its source report and states which parts of the original chain are replaced with lab actions. The [selection register](panel/modules/SELECTION.md) explains why a cluster was included.
+The current catalog has [18 scenarios across 18 UAC clusters](panel/modules/coverage.json): 3 Linux and 15 Windows. Each module links to its source report and states which parts of the original chain are replaced with lab actions. The [selection register](panel/modules/SELECTION.md) explains why a cluster was included.
 
 ## What runs where
 
