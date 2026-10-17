@@ -8,6 +8,7 @@ if (@($missing).Count -gt 0) {
     Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lure'
 $phases = [ordered]@{ lure = $false; xor = $false; bat = $false; msi = $false }
 $metrics = [ordered]@{ externalRequests = 0; ateraInstalled = $false }
 $runError = ''
@@ -21,6 +22,8 @@ try {
   [IO.File]::WriteAllText($pdf, "%PDF-1.4`n% CERTUA_LAB_PROCUREMENT_DECOY`n")
   Compress-Archive -LiteralPath $pdf -DestinationPath $zip -Force
   $phases.lure = (Test-Path -LiteralPath $pdf) -and (Test-Path -LiteralPath $zip)
+  Finish-LabStep 'lure' $phases.lure
+  Start-LabStep 'xor'
 
   $key = New-Object byte[] 128
   for ($i = 0; $i -lt $key.Length; $i++) { $key[$i] = [byte](($i * 73 + 19) -band 255) }
@@ -34,6 +37,8 @@ try {
   for ($i = 0; $i -lt $readback.Length; $i++) { $readback[$i] = [byte]($readback[$i] -bxor $key[$i % $key.Length]) }
   [IO.File]::WriteAllBytes($decoded, $readback)
   $phases.xor = [Text.Encoding]::ASCII.GetString($readback) -eq "print('CERTUA_LAB_DROPCLUE')"
+  Finish-LabStep 'xor' $phases.xor
+  Start-LabStep 'bat'
   $metrics.xorKeyBytes = $key.Length
 
   $fixture = [Text.Encoding]::ASCII.GetBytes('CERTUA_LAB_NOT_AN_INSTALLABLE_MSI')
@@ -66,6 +71,8 @@ try {
   $phases.bat = $process.ExitCode -eq 0 -and (Test-Path -LiteralPath $downloaded) -and
     ([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($downloaded)) -eq
       [Text.Encoding]::ASCII.GetString($fixture))
+  Finish-LabStep 'bat' $phases.bat
+  Start-LabStep 'msi'
   $metrics.loopbackDownloads = [int]$phases.bat
 
   if ($phases.bat) {
@@ -78,6 +85,7 @@ try {
       if (-not $installer.HasExited) { Stop-Process -Id $installer.Id -Force -ErrorAction SilentlyContinue }
     }
   }
+  Finish-LabStep 'msi' $phases.msi
 } catch {
   $runError = $_.Exception.Message
 } finally {

@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'archive'
 $phases = [ordered]@{ archive = $false; stage = $false; task = $false; beacon = $false }
 $metrics = [ordered]@{}
 
@@ -115,14 +116,21 @@ try {
   $unpacked = Join-Path $WorkDir 'unpacked'
   Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -Force
   $phases.archive = Test-Path (Join-Path $unpacked 'NOTICE.txt')
+  Finish-LabStep 'archive' $phases.archive
+  Start-LabStep 'stage'
   $folder = Join-Path $WorkDir 'SysSvc'
   New-Item -ItemType Directory -Path $folder -Force | Out-Null
   $exe = Join-Path $folder 'SysSvc.exe'
   Copy-Item -LiteralPath (Get-Command cmd.exe).Source -Destination $exe
   $phases.stage = Start-LabCmd $exe (Join-Path $WorkDir 'stage-marker.txt')
+  Finish-LabStep 'stage' $phases.stage
+  Start-LabStep 'task'
   $task = 'CertUaLab-SvcHelper-' + [guid]::NewGuid().ToString('N')
   $phases.task = Start-LabTask $task (Join-Path $WorkDir 'task-marker.txt')
+  Finish-LabStep 'task' $phases.task
+  Start-LabStep 'beacon'
   $phases.beacon = Invoke-LabLoopback '' 'WebSocket'
+  Finish-LabStep 'beacon' $phases.beacon
   $metrics.realRatCommands = 0
   $metrics.externalRequests = 0
 

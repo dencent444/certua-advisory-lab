@@ -75,10 +75,17 @@ if($errors.Count){{$errors | ForEach-Object {{Write-Error $_}}; exit 1}}"""
     with tempfile.TemporaryDirectory(prefix="certua-module-check-") as temporary:
         stage = folder / "stage.sh"
         stage_url = stage.resolve().as_uri() if stage.exists() else "file:///dev/null"
-        command = (["bash", str(folder / "run.sh"), temporary, stage_url, ""]
-                   if platform == "linux" else ["powershell", "-NoProfile", "-File", str(folder / "run.ps1"), temporary])
+        if platform == "linux":
+            command = ["bash", str(folder / "run.sh"), temporary, stage_url, ""]
+        else:
+            script = str(folder / "run.ps1").replace("'", "''")
+            work = temporary.replace("'", "''")
+            command = ["powershell", "-NoProfile", "-Command",
+                       "function Start-LabStep([string]$Stage) {}; "
+                       "function Finish-LabStep([string]$Stage,[bool]$Ok) {}; "
+                       f"& '{script}' '{work}'"]
         process = subprocess.run(command,
-                                 capture_output=True, text=True, timeout=35)
+                                 capture_output=True, text=True, timeout=50)
         assert process.returncode == 0, f"{folder.name}: {process.stderr[:300]}"
         result_path = Path(temporary) / "result.json"
         assert result_path.stat().st_size < 1500, folder

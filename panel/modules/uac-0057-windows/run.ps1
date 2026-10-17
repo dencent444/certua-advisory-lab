@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'script'
 $phases = [ordered]@{ script = $false; registry = $false; decode = $false; beacon = $false }
 $metrics = [ordered]@{}
 
@@ -113,6 +114,8 @@ try {
   [IO.File]::WriteAllText($script, "var f=new ActiveXObject('Scripting.FileSystemObject').CreateTextFile('$jsMarker',true);f.WriteLine('CERTUA_LAB');f.Close();")
   $child = Start-Process -FilePath (Get-Command cscript.exe).Source -ArgumentList ('//B //Nologo "' + $script + '"') -WindowStyle Hidden -PassThru -Wait
   $phases.script = $child.ExitCode -eq 0 -and (Test-Path $marker)
+  Finish-LabStep 'script' $phases.script
+  Start-LabStep 'registry'
   $regPath = 'HKCU:\Software\CertUaLab\' + [guid]::NewGuid().ToString('N')
   $plain = 'LAB_OYSTERBLUES'
   $encoded = [uri]::EscapeDataString(($plain.ToCharArray() | ForEach-Object { if ($_ -cmatch '[A-Za-z]') { $base = if ($_ -cmatch '[a-z]') { [int][char]'a' } else { [int][char]'A' }; [char](($([int][char]$_) - $base + 13) % 26 + $base) } else { $_ } }) -join '')
@@ -121,12 +124,17 @@ try {
     New-Item -Path $regPath -Force | Out-Null
     New-ItemProperty -Path $regPath -Name 'Stage' -Value $obfuscated -PropertyType String -Force | Out-Null
     $phases.registry = (Get-ItemProperty -Path $regPath -Name 'Stage').Stage -eq $obfuscated
+    Finish-LabStep 'registry' $phases.registry
+    Start-LabStep 'decode'
     $reversed = -join $obfuscated.ToCharArray()[($obfuscated.Length - 1)..0]
     $rot = -join ([uri]::UnescapeDataString($reversed).ToCharArray() | ForEach-Object { if ($_ -cmatch '[A-Za-z]') { $base = if ($_ -cmatch '[a-z]') { [int][char]'a' } else { [int][char]'A' }; [char](($([int][char]$_) - $base + 13) % 26 + $base) } else { $_ } })
     $phases.decode = $rot -eq $plain
+    Finish-LabStep 'decode' $phases.decode
+    Start-LabStep 'beacon'
   } finally { Remove-Item -LiteralPath $regPath -Recurse -Force -ErrorAction SilentlyContinue }
   $profile = @{ hostPresent = !!$env:COMPUTERNAME; os = 'Windows'; processCount = @(Get-Process).Count } | ConvertTo-Json -Compress
   $phases.beacon = Invoke-LabLoopback $profile
+  Finish-LabStep 'beacon' $phases.beacon
   $metrics.processCount = @(Get-Process).Count
   $metrics.externalRequests = 0
 

@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'archive'
 $phases = [ordered]@{ archive = $false; vbs = $false; batch = $false; exe = $false }
 $metrics = [ordered]@{}
 
@@ -124,11 +125,18 @@ try {
   $unpacked = Join-Path $WorkDir 'unpacked'
   Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -Force
   $phases.archive = (Test-Path (Join-Path $unpacked 'stage.vbs')) -and (Test-Path (Join-Path $unpacked 'stage.bat'))
+  Finish-LabStep 'archive' $phases.archive
+  Start-LabStep 'vbs'
   $vbsChild = Start-Process -FilePath (Get-Command cscript.exe).Source -ArgumentList ('//B //Nologo "' + (Join-Path $unpacked 'stage.vbs') + '"') -WindowStyle Hidden -PassThru -Wait
   $phases.vbs = $vbsChild.ExitCode -eq 0 -and (Test-Path $vbsMarker)
+  Finish-LabStep 'vbs' $phases.vbs
+  Start-LabStep 'batch'
   $batChild = Start-Process -FilePath (Get-Command cmd.exe).Source -ArgumentList ('/c "' + (Join-Path $unpacked 'stage.bat') + '"') -WindowStyle Hidden -PassThru -Wait
   $phases.batch = $batChild.ExitCode -eq 0 -and (Test-Path $batchMarker)
+  Finish-LabStep 'batch' $phases.batch
+  Start-LabStep 'exe'
   $phases.exe = Start-LabCmd (Join-Path $unpacked 'DarkCrystal-inert.exe') (Join-Path $WorkDir 'exe-marker.txt')
+  Finish-LabStep 'exe' $phases.exe
   $metrics.remoteControl = $false
   $metrics.externalRequests = 0
 

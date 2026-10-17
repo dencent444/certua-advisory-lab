@@ -90,33 +90,40 @@ fs::path dist_dir;
 fs::path modules_dir;
 
 bool valid_module_id(const std::string& id) {
-  return !id.empty() && id.size() <= 64 &&
-         std::all_of(id.begin(), id.end(), [](unsigned char ch) {
-           return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
-         });
+  return !id.empty() && id.size() <= 64 && std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+    return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
+  });
 }
 
 // Accept only manifests whose ID, platform, script, and dependency names match the module contract.
 std::optional<json> load_module(const std::string& id) {
-  if (!valid_module_id(id)) return std::nullopt;
+  if (!valid_module_id(id))
+    return std::nullopt;
   const fs::path root = modules_dir / id;
   std::ifstream manifest_file(root / "manifest.json");
-  if (!manifest_file) return std::nullopt;
+  if (!manifest_file)
+    return std::nullopt;
   const auto manifest = json::parse(manifest_file, nullptr, false);
-  if (!manifest.is_object() || manifest.value("id", "") != id) return std::nullopt;
+  if (!manifest.is_object() || manifest.value("id", "") != id)
+    return std::nullopt;
   const std::string platform = manifest.value("platform", "");
-  if (platform != "linux" && platform != "windows") return std::nullopt;
-  if (!fs::is_regular_file(root / (platform == "linux" ? "run.sh" : "run.ps1"))) return std::nullopt;
+  if (platform != "linux" && platform != "windows")
+    return std::nullopt;
+  if (!fs::is_regular_file(root / (platform == "linux" ? "run.sh" : "run.ps1")))
+    return std::nullopt;
   if (manifest.contains("requires")) {
-    if (!manifest["requires"].is_array()) return std::nullopt;
+    if (!manifest["requires"].is_array())
+      return std::nullopt;
     for (const auto& requirement : manifest["requires"]) {
-      if (!requirement.is_string()) return std::nullopt;
+      if (!requirement.is_string())
+        return std::nullopt;
       const std::string command = requirement.get<std::string>();
       if (command.empty() || command.size() > 32 ||
           !std::all_of(command.begin(), command.end(), [](unsigned char ch) {
             return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
                    (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.';
-          })) return std::nullopt;
+          }))
+        return std::nullopt;
     }
   }
   return manifest;
@@ -125,20 +132,54 @@ std::optional<json> load_module(const std::string& id) {
 // The Linux preflight becomes part of the bytes hashed for the agent's signed task.
 std::string module_file(const std::string& id, const std::string& name) {
   const auto manifest = load_module(id);
-  if (!manifest || (name != "run.sh" && name != "run.ps1" && name != "stage.sh")) return "";
+  if (!manifest || (name != "run.sh" && name != "run.ps1" && name != "stage.sh"))
+    return "";
   const std::string platform = manifest->value("platform", "");
-  if ((platform == "linux" && name == "run.ps1") ||
-      (platform == "windows" && name != "run.ps1")) return "";
+  if ((platform == "linux" && name == "run.ps1") || (platform == "windows" && name != "run.ps1"))
+    return "";
   std::ifstream file(modules_dir / id / name, std::ios::binary);
-  if (!file) return "";
+  if (!file)
+    return "";
   const std::string content(std::istreambuf_iterator<char>(file), {});
-  if (name != "run.sh" || !manifest->contains("requires")) return content;
+  if (name == "run.ps1") {
+    const auto first_line = content.find('\n');
+    if (first_line == std::string::npos || content.rfind("param(", 0) != 0)
+      return content;
+    const std::string timing = R"PANEL(
+$script:labStepTimers = @{}
+$script:labTimelineFile = Join-Path $WorkDir 'timing.jsonl'
+function Start-LabStep([string]$Stage) {
+  if ($Stage -notmatch '^[a-z0-9_-]{1,32}$') { return }
+  $delay = Get-Random -Minimum 800 -Maximum 3001
+  Start-Sleep -Milliseconds $delay
+  $script:labStepTimers[$Stage] = @{ timer = [Diagnostics.Stopwatch]::StartNew(); delayMs = $delay }
+}
+function Finish-LabStep([string]$Stage, [bool]$Ok) {
+  if (-not $script:labStepTimers.ContainsKey($Stage)) { return }
+  $entry = $script:labStepTimers[$Stage]
+  $entry.timer.Stop()
+  $duration = [int][Math]::Min(3600000, $entry.timer.ElapsedMilliseconds)
+  try {
+    @{ stage = $Stage; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();
+       durationMs = $duration; delayMs = $entry.delayMs; ok = $Ok } |
+      ConvertTo-Json -Compress | Add-Content -LiteralPath $script:labTimelineFile -Encoding ASCII
+  } catch { }
+  $script:labStepTimers.Remove($Stage)
+}
+)PANEL";
+    return content.substr(0, first_line + 1) + timing + content.substr(first_line + 1);
+  }
+  if (name != "run.sh" || !manifest->contains("requires"))
+    return content;
   std::string preflight = "#!/usr/bin/env bash\nset -euo pipefail\nmissing=''\n";
   for (const auto& requirement : (*manifest)["requires"]) {
     const std::string command = requirement.get<std::string>();
-    preflight += "if ! command -v " + command + " >/dev/null 2>&1; then missing=\"${missing:+$missing,}" + command + "\"; fi\n";
+    preflight += "if ! command -v " + command +
+                 " >/dev/null 2>&1; then missing=\"${missing:+$missing,}" + command + "\"; fi\n";
   }
-  preflight += "if [ -n \"$missing\" ]; then printf '{\"preflight\":{\"ok\":false,\"missing\":\"%s\"}}' \"$missing\" > \"$1/result.json\"; exit 0; fi\n";
+  preflight +=
+      "if [ -n \"$missing\" ]; then printf '{\"preflight\":{\"ok\":false,\"missing\":\"%s\"}}' "
+      "\"$missing\" > \"$1/result.json\"; exit 0; fi\n";
   return preflight + content;
 }
 
@@ -147,7 +188,10 @@ std::string sha256_hex(const std::string& content) {
   SHA256(reinterpret_cast<const unsigned char*>(content.data()), content.size(), digest);
   constexpr char hex[] = "0123456789abcdef";
   std::string result;
-  for (unsigned char byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
+  for (unsigned char byte : digest) {
+    result += hex[byte >> 4];
+    result += hex[byte & 15];
+  }
   return result;
 }
 
@@ -155,15 +199,21 @@ std::string agent_hmac_hex(const std::string& message) {
   unsigned char key[32];
   for (size_t index = 0; index < 32; ++index) {
     const auto digit = [](char ch) -> unsigned { return ch <= '9' ? ch - '0' : ch - 'a' + 10; };
-    key[index] = static_cast<unsigned char>(digit(agent_key[index * 2]) * 16 + digit(agent_key[index * 2 + 1]));
+    key[index] = static_cast<unsigned char>(digit(agent_key[index * 2]) * 16 +
+                                            digit(agent_key[index * 2 + 1]));
   }
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned int length = 0;
   if (!HMAC(EVP_sha256(), key, sizeof(key), reinterpret_cast<const unsigned char*>(message.data()),
-            message.size(), digest, &length) || length != 32) throw std::runtime_error("HMAC failed");
+            message.size(), digest, &length) ||
+      length != 32)
+    throw std::runtime_error("HMAC failed");
   constexpr char hex[] = "0123456789abcdef";
   std::string result;
-  for (unsigned index = 0; index < length; ++index) { result += hex[digest[index] >> 4]; result += hex[digest[index] & 15]; }
+  for (unsigned index = 0; index < length; ++index) {
+    result += hex[digest[index] >> 4];
+    result += hex[digest[index] & 15];
+  }
   return result;
 }
 
@@ -176,28 +226,91 @@ std::string now_utc() {
   return out;
 }
 
-void append_log(const std::string& tab, const std::string& level,
-                const std::string& en, const std::string& uk) {
+void append_log(const std::string& tab, const std::string& level, const std::string& en,
+                const std::string& uk) {
   std::lock_guard lock(state_mutex);
   auto& entries = logs[tab];
   entries.insert(entries.begin(), {now_utc(), level, en, uk});
-  if (entries.size() > 50) entries.resize(50);
+  if (entries.size() > 50)
+    entries.resize(50);
 }
 
 // Each stage code is recorded once per task, even when an agent retries delivery.
-void task_event(const std::string& task_id, const std::string& code,
-                const std::string& source, const std::string& level) {
-  database->query("INSERT INTO public.panel_task_events (task_id, code, source, level) "
-                  "VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (task_id, code) DO NOTHING",
-                  {task_id, code, source, level});
+void task_event(const std::string& task_id, const std::string& code, const std::string& source,
+                const std::string& level) {
+  database->query(
+      "INSERT INTO public.panel_task_events (task_id, code, source, level) "
+      "VALUES ($1::bigint, $2, $3, $4) ON CONFLICT (task_id, code) DO NOTHING",
+      {task_id, code, source, level});
+}
+
+// Accept only measured boundaries for stages declared by the task's module.
+void record_phase_timing(const std::string& task_id, const std::string& agent_id,
+                         const json& timeline) {
+  if (!timeline.is_array() || timeline.size() > 32)
+    return;
+  const auto task = database->query(
+      "SELECT scenario FROM public.panel_tasks WHERE id = $1::bigint AND agent_id = $2 "
+      "AND status = 'running'",
+      {task_id, agent_id});
+  if (task.empty())
+    return;
+  const auto manifest = load_module(task[0][0]);
+  if (!manifest)
+    return;
+  for (const auto& entry : timeline) {
+    if (!entry.is_object() || !entry.contains("stage") || !entry["stage"].is_string() ||
+        !entry.contains("at") || !entry["at"].is_number_unsigned() || !entry.contains("ok") ||
+        !entry["ok"].is_boolean() || !entry.contains("durationMs") ||
+        !entry["durationMs"].is_number_unsigned() || !entry.contains("delayMs") ||
+        !entry["delayMs"].is_number_unsigned())
+      continue;
+    const std::string stage_id = entry["stage"].get<std::string>();
+    bool declared = false;
+    std::string code = "phase_" + stage_id;
+    if (manifest->contains("flow") && (*manifest)["flow"].is_array()) {
+      for (const auto& stage : (*manifest)["flow"])
+        if (stage.is_object() && stage.value("id", "") == stage_id)
+          declared = true;
+    } else if (task[0][0] == "uac-0145-linux") {
+      const std::map<std::string, std::string> legacy = {{"config", "config_prepared"},
+                                                         {"download", "stage_downloaded"},
+                                                         {"execution", "stage_executed"}};
+      const auto match = legacy.find(stage_id);
+      if (match != legacy.end()) {
+        declared = true;
+        code = match->second;
+      }
+    }
+    const uint64_t at = entry["at"].get<uint64_t>();
+    const uint64_t duration = entry["durationMs"].get<uint64_t>();
+    const uint64_t delay = entry["delayMs"].get<uint64_t>();
+    if (!declared || at < 1600000000000ULL || at > 4102444800000ULL || duration > 3600000 ||
+        delay > 10000)
+      continue;
+    if (!entry["ok"].get<bool>())
+      code += "_failed";
+    database->query(
+        "INSERT INTO public.panel_task_events "
+        "(task_id, code, source, level, occurred_at, duration_ms, delay_ms) "
+        "SELECT id, $3, 'agent', 'standard', to_timestamp($4::double precision / 1000.0), "
+        "$5::integer, $6::integer FROM public.panel_tasks "
+        "WHERE id = $1::bigint AND agent_id = $2 AND status = 'running' "
+        "AND to_timestamp($4::double precision / 1000.0) >= created_at - INTERVAL '45 seconds' "
+        "AND to_timestamp($4::double precision / 1000.0) <= now() + INTERVAL '45 seconds' "
+        "ON CONFLICT (task_id, code) DO NOTHING",
+        {task_id, agent_id, code, std::to_string(at), std::to_string(duration),
+         std::to_string(delay)});
+  }
 }
 
 bool allowed_agent_event(const std::string& code) {
   static const std::vector<std::string> allowed = {
-      "task_verified", "key_ready", "peer_enrolled", "tunnel_ready",
-      "module_downloaded", "hash_verified", "execution_started", "execution_finished",
-      "signature_failed", "peer_enrollment_failed", "tunnel_failed",
-      "module_fetch_failed", "hash_mismatch", "execution_failed"};
+      "task_verified",          "key_ready",          "peer_enrolled",
+      "tunnel_ready",           "module_downloaded",  "hash_verified",
+      "execution_started",      "execution_finished", "signature_failed",
+      "peer_enrollment_failed", "tunnel_failed",      "module_fetch_failed",
+      "hash_mismatch",          "execution_failed"};
   return std::find(allowed.begin(), allowed.end(), code) != allowed.end();
 }
 
@@ -210,27 +323,33 @@ size_t curl_write(char* data, size_t size, size_t count, void* context) {
 size_t siem_write(char* data, size_t size, size_t count, void* context) {
   auto* body = static_cast<std::string*>(context);
   const size_t bytes = size * count;
-  if (body->size() + bytes > 262144) return 0;
+  if (body->size() + bytes > 262144)
+    return 0;
   body->append(data, bytes);
   return bytes;
 }
 
 std::string siem_field(const json& result, const std::string& name) {
-  if (!result.is_object() || !result.contains(name)) return "";
+  if (!result.is_object() || !result.contains(name))
+    return "";
   const auto& value = result[name];
-  if (value.is_string()) return value.get<std::string>().substr(0, 160);
+  if (value.is_string())
+    return value.get<std::string>().substr(0, 160);
   if (value.is_array() && !value.empty() && value[0].is_string())
     return value[0].get<std::string>().substr(0, 160);
   return "";
 }
 
 bool siem_host_matches(const json& result, const std::string& field, const std::string& host) {
-  if (!result.is_object() || !result.contains(field)) return false;
+  if (!result.is_object() || !result.contains(field))
+    return false;
   const auto& value = result[field];
-  if (value.is_string()) return value.get<std::string>() == host;
+  if (value.is_string())
+    return value.get<std::string>() == host;
   if (value.is_array())
     for (const auto& item : value)
-      if (item.is_string() && item.get<std::string>() == host) return true;
+      if (item.is_string() && item.get<std::string>() == host)
+        return true;
   return false;
 }
 
@@ -239,29 +358,35 @@ std::pair<json, std::string> splunk_alerts(const std::string& host, const std::s
   if (host.empty() || host.size() > 253 ||
       !std::all_of(host.begin(), host.end(), [](unsigned char ch) {
         return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
-      })) return {json::array(), "invalid SIEM asset name"};
+      }))
+    return {json::array(), "invalid SIEM asset name"};
   std::string filters;
   std::string fields = "_time event_id rule_name search_name severity urgency";
   for (const auto& field : siem.host_fields) {
-    if (!filters.empty()) filters += " OR ";
+    if (!filters.empty())
+      filters += " OR ";
     filters += field + "=\"" + host + "\"";
     fields += " " + field;
   }
   const std::string search = "search index=" + siem.index + " (" + filters +
-      ") | sort 0 - _time | head 10 | table " + fields;
+                             ") | sort 0 - _time | head 10 | table " + fields;
   const std::string url = siem.url + "/services/search/jobs";
   CURL* curl = curl_easy_init();
-  if (!curl) return {json::array(), "curl unavailable"};
+  if (!curl)
+    return {json::array(), "curl unavailable"};
   char* encoded_search = curl_easy_escape(curl, search.c_str(), static_cast<int>(search.size()));
   char* encoded_start = curl_easy_escape(curl, start.c_str(), static_cast<int>(start.size()));
   if (!encoded_search || !encoded_start) {
-    if (encoded_search) curl_free(encoded_search);
-    if (encoded_start) curl_free(encoded_start);
+    if (encoded_search)
+      curl_free(encoded_search);
+    if (encoded_start)
+      curl_free(encoded_start);
     curl_easy_cleanup(curl);
     return {json::array(), "could not encode Splunk search"};
   }
   const std::string payload = std::string("search=") + encoded_search +
-      "&exec_mode=oneshot&output_mode=json&earliest_time=" + encoded_start + "&latest_time=now";
+                              "&exec_mode=oneshot&output_mode=json&earliest_time=" + encoded_start +
+                              "&latest_time=now";
   curl_free(encoded_search);
   curl_free(encoded_start);
   std::string body;
@@ -284,43 +409,56 @@ std::pair<json, std::string> splunk_alerts(const std::string& host, const std::s
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
-  if (code != CURLE_OK) return {json::array(), curl_easy_strerror(code)};
-  if (status != 200) return {json::array(), "SIEM HTTP " + std::to_string(status)};
+  if (code != CURLE_OK)
+    return {json::array(), curl_easy_strerror(code)};
+  if (status != 200)
+    return {json::array(), "SIEM HTTP " + std::to_string(status)};
   const json response = json::parse(body, nullptr, false);
   if (!response.is_object() || !response.contains("results") || !response["results"].is_array())
     return {json::array(), "invalid SIEM search response"};
   if (response.contains("messages") && response["messages"].is_array())
     for (const auto& message : response["messages"])
-      if (message.is_object() && (message.value("type", "") == "WARN" ||
-                                  message.value("type", "") == "ERROR" ||
-                                  message.value("type", "") == "FATAL"))
+      if (message.is_object() &&
+          (message.value("type", "") == "WARN" || message.value("type", "") == "ERROR" ||
+           message.value("type", "") == "FATAL"))
         return {json::array(), "Splunk search failed"};
   json alerts = json::array();
   bool unparseable_hit = false;
   for (const auto& hit : response["results"]) {
-    if (!hit.is_object()) { unparseable_hit = true; continue; }
+    if (!hit.is_object()) {
+      unparseable_hit = true;
+      continue;
+    }
     std::string matched_host;
     for (const auto& field : siem.host_fields)
-      if (siem_host_matches(hit, field, host)) { matched_host = host; break; }
-    if (matched_host.empty()) { unparseable_hit = true; continue; }
+      if (siem_host_matches(hit, field, host)) {
+        matched_host = host;
+        break;
+      }
+    if (matched_host.empty()) {
+      unparseable_hit = true;
+      continue;
+    }
     const std::string time = siem_field(hit, "_time");
-    const std::string rule = siem_field(hit, "rule_name").empty()
-        ? siem_field(hit, "search_name") : siem_field(hit, "rule_name");
-    const std::string severity = siem_field(hit, "severity").empty()
-        ? siem_field(hit, "urgency") : siem_field(hit, "severity");
-    const std::string id = siem_field(hit, "event_id").empty() ? rule + "@" + time
-                                                            : siem_field(hit, "event_id");
+    const std::string rule = siem_field(hit, "rule_name").empty() ? siem_field(hit, "search_name")
+                                                                  : siem_field(hit, "rule_name");
+    const std::string severity = siem_field(hit, "severity").empty() ? siem_field(hit, "urgency")
+                                                                     : siem_field(hit, "severity");
+    const std::string id =
+        siem_field(hit, "event_id").empty() ? rule + "@" + time : siem_field(hit, "event_id");
     alerts.push_back({{"id", id.substr(0, 160)},
                       {"time", time},
                       {"host", matched_host},
                       {"rule", rule},
                       {"severity", severity}});
   }
-  if (unparseable_hit) return {json::array(), "alert fields missing or host mismatch"};
+  if (unparseable_hit)
+    return {json::array(), "alert fields missing or host mismatch"};
   return {alerts, ""};
 }
 
-// The companion monitor runs on the server and survives application restarts through PostgreSQL state.
+// The companion monitor runs on the server and survives application restarts through PostgreSQL
+// state.
 void monitor_siem() {
   while (!stop_requested) {
     try {
@@ -336,26 +474,35 @@ void monitor_siem() {
           "ORDER BY s.task_id LIMIT 20");
       for (const auto& row : rows) {
         const std::string& task_id = row[0];
-        if (row[3] == "queued") continue;
+        if (row[3] == "queued")
+          continue;
         if (row[6] == "false") {
-          database->query("UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint",
-                          {task_id});
+          database->query(
+              "UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint",
+              {task_id});
           continue;
         }
         const auto [alerts, error] = splunk_alerts(row[1], row[2]);
         std::string state = "watching";
-        if (!error.empty()) state = "error";
-        else if (!alerts.empty()) state = "alert";
-        else if ((row[3] == "completed" || row[3] == "failed") && std::stoi(row[4]) >= siem.grace_seconds)
+        if (!error.empty())
+          state = "error";
+        else if (!alerts.empty())
+          state = "alert";
+        else if ((row[3] == "completed" || row[3] == "failed") &&
+                 std::stoi(row[4]) >= siem.grace_seconds)
           state = "no_alert";
         database->query(
             "UPDATE public.panel_siem_checks SET state = $2, alerts = $3::jsonb, "
             "error = $4, checked_at = now() WHERE task_id = $1::bigint",
             {task_id, state, alerts.dump(), error});
-        if (row[5] == "waiting" && state == "watching") task_event(task_id, "siem_watching", "siem", "standard");
-        if (state == "alert") task_event(task_id, "siem_alert", "siem", "standard");
-        if (state == "no_alert") task_event(task_id, "siem_no_alert", "siem", "standard");
-        if (state == "error" && row[5] != "error") task_event(task_id, "siem_error", "siem", "standard");
+        if (row[5] == "waiting" && state == "watching")
+          task_event(task_id, "siem_watching", "siem", "standard");
+        if (state == "alert")
+          task_event(task_id, "siem_alert", "siem", "standard");
+        if (state == "no_alert")
+          task_event(task_id, "siem_no_alert", "siem", "standard");
+        if (state == "error" && row[5] != "error")
+          task_event(task_id, "siem_error", "siem", "standard");
       }
     } catch (const std::exception& error) {
       std::cerr << "SIEM monitor: " << error.what() << '\n';
@@ -396,11 +543,13 @@ ProbeResult check_public_port() {
   }
   try {
     const auto response = json::parse(body);
-    if (!response.value("success", false)) throw std::runtime_error("probe failed");
+    if (!response.value("success", false))
+      throw std::runtime_error("probe failed");
     const auto& data = response.at("data");
     result.host = data.value("host", "");
     const auto& ports = data.at("ports");
-    if (!ports.is_array() || ports.empty()) throw std::runtime_error("no port result");
+    if (!ports.is_array() || ports.empty())
+      throw std::runtime_error("no port result");
     const std::string state = ports.at(0).value("status", "");
     if (state == "open" || state == "closed" || state == "filtered" || state == "blocked") {
       result.state = state;
@@ -421,8 +570,8 @@ void refresh_probe() {
     probe = next;
   }
   const std::map<std::string, std::string> uk_state = {
-    {"open", "доступний"}, {"closed", "закритий"}, {"filtered", "фільтрується"},
-    {"blocked", "заблокований"}, {"unavailable", "недоступна"},
+      {"open", "доступний"},       {"closed", "закритий"},        {"filtered", "фільтрується"},
+      {"blocked", "заблокований"}, {"unavailable", "недоступна"},
   };
   const auto translated = uk_state.find(next.state);
   append_log("connect", next.state == "open" ? "INFO" : "WARN",
@@ -433,7 +582,8 @@ void refresh_probe() {
 
 std::string random_token() {
   unsigned char bytes[32];
-  if (RAND_bytes(bytes, sizeof(bytes)) != 1) throw std::runtime_error("random bytes unavailable");
+  if (RAND_bytes(bytes, sizeof(bytes)) != 1)
+    throw std::runtime_error("random bytes unavailable");
   constexpr char hex[] = "0123456789abcdef";
   std::string token;
   token.reserve(64);
@@ -445,18 +595,19 @@ std::string random_token() {
 }
 
 std::string password_digest(const std::string& password, const std::string& salt) {
-  if (salt.size() != 32) throw std::runtime_error("invalid password salt");
+  if (salt.size() != 32)
+    throw std::runtime_error("invalid password salt");
   const auto nibble = [](char ch) -> unsigned {
     return ch <= '9' ? static_cast<unsigned>(ch - '0') : static_cast<unsigned>(ch - 'a' + 10);
   };
   unsigned char salt_bytes[16];
   for (size_t index = 0; index < 16; ++index) {
-    salt_bytes[index] = static_cast<unsigned char>(nibble(salt[index * 2]) * 16 +
-                                                  nibble(salt[index * 2 + 1]));
+    salt_bytes[index] =
+        static_cast<unsigned char>(nibble(salt[index * 2]) * 16 + nibble(salt[index * 2 + 1]));
   }
   unsigned char digest[32];
-  if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(), salt_bytes, sizeof(salt_bytes),
-                        210000, EVP_sha256(), sizeof(digest), digest) != 1) {
+  if (PKCS5_PBKDF2_HMAC(password.c_str(), password.size(), salt_bytes, sizeof(salt_bytes), 210000,
+                        EVP_sha256(), sizeof(digest), digest) != 1) {
     throw std::runtime_error("password hashing failed");
   }
   constexpr char hex[] = "0123456789abcdef";
@@ -476,8 +627,10 @@ struct Account {
 };
 
 Account load_account() {
-  const auto rows = database->query("SELECT username, salt, password_hash FROM public.panel_admin WHERE id = 1");
-  if (rows.size() != 1 || rows[0].size() != 3) throw std::runtime_error("panel account is missing");
+  const auto rows =
+      database->query("SELECT username, salt, password_hash FROM public.panel_admin WHERE id = 1");
+  if (rows.size() != 1 || rows[0].size() != 3)
+    throw std::runtime_error("panel account is missing");
   return {rows[0][0], rows[0][1], rows[0][2]};
 }
 
@@ -491,54 +644,79 @@ bool check_account(const std::string& username, const std::string& password) {
 // Apply additive schema changes and create the sole admin account only on first initialization.
 void initialize_database() {
   database = std::make_unique<Postgres>();
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_admin ("
-                  "id SMALLINT PRIMARY KEY CHECK (id = 1), "
-                  "username TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL)");
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_agents ("
-                  "id TEXT PRIMARY KEY, name TEXT NOT NULL, last_seen TIMESTAMPTZ NOT NULL, "
-                  "info JSONB NOT NULL DEFAULT '{}'::jsonb, disabled BOOLEAN NOT NULL DEFAULT false)");
-  database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT '{}'::jsonb");
-  database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT false");
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_admin ("
+      "id SMALLINT PRIMARY KEY CHECK (id = 1), "
+      "username TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL)");
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_agents ("
+      "id TEXT PRIMARY KEY, name TEXT NOT NULL, last_seen TIMESTAMPTZ NOT NULL, "
+      "info JSONB NOT NULL DEFAULT '{}'::jsonb, disabled BOOLEAN NOT NULL DEFAULT false)");
+  database->query(
+      "ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS info JSONB NOT NULL DEFAULT "
+      "'{}'::jsonb");
+  database->query(
+      "ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT "
+      "false");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_public_key TEXT");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS wg_ip TEXT");
   database->query("ALTER TABLE public.panel_agents ADD COLUMN IF NOT EXISTS siem_host TEXT");
   database->query("CREATE SEQUENCE IF NOT EXISTS public.panel_wg_ip_seq START 2 MAXVALUE 254");
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_tasks ("
-                  "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES public.panel_agents(id), "
-                  "scenario TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', "
-                  "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
-                  "result JSONB NOT NULL DEFAULT '{}'::jsonb)");
-  database->query("ALTER TABLE public.panel_tasks ADD COLUMN IF NOT EXISTS verbosity TEXT NOT NULL DEFAULT 'standard'");
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_task_events ("
-                  "id BIGSERIAL PRIMARY KEY, task_id BIGINT NOT NULL REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
-                  "code TEXT NOT NULL, source TEXT NOT NULL, level TEXT NOT NULL, "
-                  "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (task_id, code))");
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_siem_checks ("
-                  "task_id BIGINT PRIMARY KEY REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
-                  "state TEXT NOT NULL, alerts JSONB NOT NULL DEFAULT '[]'::jsonb, "
-                  "checked_at TIMESTAMPTZ, error TEXT)");
-  database->query("CREATE TABLE IF NOT EXISTS public.panel_settings ("
-                  "key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-  database->query("INSERT INTO public.panel_settings (key, value) VALUES ('agent_key', $1) "
-                  "ON CONFLICT (key) DO NOTHING", {random_token()});
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_tasks ("
+      "id BIGSERIAL PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES public.panel_agents(id), "
+      "scenario TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', "
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT "
+      "now(), "
+      "result JSONB NOT NULL DEFAULT '{}'::jsonb)");
+  database->query(
+      "ALTER TABLE public.panel_tasks ADD COLUMN IF NOT EXISTS verbosity TEXT NOT NULL DEFAULT "
+      "'standard'");
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_task_events ("
+      "id BIGSERIAL PRIMARY KEY, task_id BIGINT NOT NULL REFERENCES public.panel_tasks(id) ON "
+      "DELETE CASCADE, "
+      "code TEXT NOT NULL, source TEXT NOT NULL, level TEXT NOT NULL, "
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (task_id, code))");
+  database->query(
+      "ALTER TABLE public.panel_task_events ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ");
+  database->query(
+      "ALTER TABLE public.panel_task_events ADD COLUMN IF NOT EXISTS duration_ms INTEGER");
+  database->query("ALTER TABLE public.panel_task_events ADD COLUMN IF NOT EXISTS delay_ms INTEGER");
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_siem_checks ("
+      "task_id BIGINT PRIMARY KEY REFERENCES public.panel_tasks(id) ON DELETE CASCADE, "
+      "state TEXT NOT NULL, alerts JSONB NOT NULL DEFAULT '[]'::jsonb, "
+      "checked_at TIMESTAMPTZ, error TEXT)");
+  database->query(
+      "CREATE TABLE IF NOT EXISTS public.panel_settings ("
+      "key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  database->query(
+      "INSERT INTO public.panel_settings (key, value) VALUES ('agent_key', $1) "
+      "ON CONFLICT (key) DO NOTHING",
+      {random_token()});
   const auto rows = database->query("SELECT id FROM public.panel_admin WHERE id = 1");
-  if (!rows.empty()) return;
+  if (!rows.empty())
+    return;
   const char* username = std::getenv("PANEL_BOOTSTRAP_USER");
   const char* password = std::getenv("PANEL_BOOTSTRAP_PASSWORD");
   if (!username || !password || !*username || std::string(password).size() < 16) {
-    throw std::runtime_error("set PANEL_BOOTSTRAP_USER and PANEL_BOOTSTRAP_PASSWORD to create the first account");
+    throw std::runtime_error(
+        "set PANEL_BOOTSTRAP_USER and PANEL_BOOTSTRAP_PASSWORD to create the first account");
   }
   const std::string salt = random_token().substr(0, 32);
-  database->query("INSERT INTO public.panel_admin (id, username, salt, password_hash) "
-                  "VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING",
-                  {username, salt, password_digest(password, salt)});
+  database->query(
+      "INSERT INTO public.panel_admin (id, username, salt, password_hash) "
+      "VALUES (1, $1, $2, $3) ON CONFLICT (id) DO NOTHING",
+      {username, salt, password_digest(password, salt)});
 }
 
 std::string cookie_value(const std::string& request, const std::string& name) {
   std::istringstream lines(request);
   std::string line;
   while (std::getline(lines, line)) {
-    if (line.rfind("Cookie:", 0) != 0) continue;
+    if (line.rfind("Cookie:", 0) != 0)
+      continue;
     std::istringstream cookies(line.substr(7));
     std::string item;
     while (std::getline(cookies, item, ';')) {
@@ -554,7 +732,8 @@ std::string cookie_value(const std::string& request, const std::string& name) {
 
 bool authenticated(const std::string& request) {
   const std::string token = cookie_value(request, "panel_session");
-  if (token.size() != 64) return false;
+  if (token.size() != 64)
+    return false;
   std::lock_guard lock(state_mutex);
   const auto session = sessions.find(token);
   return session != sessions.end() && session->second > std::chrono::steady_clock::now();
@@ -563,18 +742,24 @@ bool authenticated(const std::string& request) {
 json live_agents_unlocked() {
   json result = json::array();
   const auto rows = database->query(
-      "SELECT id, name, to_char(last_seen AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), info::text, "
+      "SELECT id, name, to_char(last_seen AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
+      "info::text, "
       "COALESCE(siem_host, name) "
-      "FROM public.panel_agents WHERE NOT disabled AND last_seen > now() - INTERVAL '45 seconds' ORDER BY name");
+      "FROM public.panel_agents WHERE NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
+      "ORDER BY name");
   for (const auto& row : rows) {
-    result.push_back({{"id", row[0]}, {"name", row[1]}, {"lastSeen", row[2]},
-                      {"info", json::parse(row[3])}, {"siemHost", row[4]}});
+    result.push_back({{"id", row[0]},
+                      {"name", row[1]},
+                      {"lastSeen", row[2]},
+                      {"info", json::parse(row[3])},
+                      {"siemHost", row[4]}});
   }
   return result;
 }
 
 bool valid_agent_base_url(const std::string& url) {
-  if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return false;
+  if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0)
+    return false;
   return std::all_of(url.begin(), url.end(), [](unsigned char ch) {
     return std::isalnum(ch) || ch == ':' || ch == '/' || ch == '.' || ch == '-';
   });
@@ -590,7 +775,8 @@ void replace_all(std::string& value, const std::string& needle, const std::strin
 
 // Build the Windows install command from the current agent endpoint and shared signing key.
 std::string agent_command(const std::string& base_url) {
-  if (!valid_agent_base_url(base_url)) return "";
+  if (!valid_agent_base_url(base_url))
+    return "";
   std::string command = R"PANEL($ErrorActionPreference = 'Stop'
 $agentDir = Join-Path $env:LOCALAPPDATA 'CertUaAgent'
 New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
@@ -643,6 +829,7 @@ while ($true) {
       $actualHash = [BitConverter]::ToString(([System.Security.Cryptography.SHA256]::Create()).ComputeHash($scriptBytes)).Replace('-', '').ToLowerInvariant()
       $evidence = @{}
       $ok = $false
+      $timeline = @()
       if ($expectedSignature -eq $response.taskSignature -and $actualHash -eq $response.sha256) {
         $workDir = Join-Path $env:TEMP ('certua-lab-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $workDir -Force | Out-Null
@@ -652,7 +839,7 @@ while ($true) {
           $resultFile = Join-Path $workDir 'result.json'
           if (Test-Path -LiteralPath $resultFile) {
             $raw = [IO.File]::ReadAllText($resultFile)
-            if ($raw.Length -le 1500) { $evidence = $raw | ConvertFrom-Json }
+            if ($raw.Length -le 4000) { $evidence = $raw | ConvertFrom-Json }
           }
           $ok = [bool]$evidence.phases -and -not $evidence.preflight -and -not $evidence.metrics.error
           if ($evidence.phases) {
@@ -663,10 +850,14 @@ while ($true) {
         } catch {
           Write-Warning $_.Exception.Message
         } finally {
+          $timingFile = Join-Path $workDir 'timing.jsonl'
+          if (Test-Path -LiteralPath $timingFile) {
+            $timeline = @(Get-Content -LiteralPath $timingFile | ForEach-Object { $_ | ConvertFrom-Json })
+          }
           Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
         }
       }
-      $pendingResult = @{ id = [long]$response.task; ok = $ok; evidence = $evidence }
+      $pendingResult = @{ id = [long]$response.task; ok = $ok; evidence = $evidence; timeline = $timeline }
     }
   } catch {
     Write-Warning $_.Exception.Message
@@ -692,8 +883,10 @@ Write-Host 'CertUaAgent scheduled task started.'
 
 // Embed private module transport settings only when the server has a WireGuard helper.
 std::string linux_agent_command(const std::string& base_url) {
-  if (!valid_agent_base_url(base_url)) return "";
-  if (!wg_server_public_key.empty() && wg_client_sha.empty()) return "";
+  if (!valid_agent_base_url(base_url))
+    return "";
+  if (!wg_server_public_key.empty() && wg_client_sha.empty())
+    return "";
   std::string command = R"PANEL(bash <<'PANEL_INSTALL'
 set -euo pipefail
 for tool in systemctl loginctl curl openssl od hostname tr date uname nproc awk sed cut sha256sum mktemp; do
@@ -757,8 +950,9 @@ while :; do
   message="${agent_id}|${ts}|${nonce}|${name}"
   info=''
   if [ -f "$agent_dir/result" ]; then
-    read -r task_id task_ok task_evidence < "$agent_dir/result"
-    info="$(printf '{"taskResult":{"id":%s,"ok":%s,"evidence":%s}}' "$task_id" "$task_ok" "$task_evidence")"
+    read -r task_id task_ok task_evidence task_timeline < "$agent_dir/result"
+    info="$(printf '{"taskResult":{"id":%s,"ok":%s,"evidence":%s,"timeline":%s}}' \
+      "$task_id" "$task_ok" "$task_evidence" "${task_timeline:-[]}")"
     message="${message}|${info}"
   elif (( ts - last_info >= 60 )); then
     cpu="$(nproc)"
@@ -867,12 +1061,21 @@ while :; do
       else
         emit_event module_fetch_failed detailed
       fi
+      timeline='['
+      if [ -f "$work_dir/timing.jsonl" ]; then
+        while IFS= read -r entry; do
+          [ -n "$entry" ] || continue
+          [ "$timeline" = '[' ] || timeline+=','
+          timeline+="$entry"
+        done < "$work_dir/timing.jsonl"
+      fi
+      timeline+=']'
       if [ "$module_ok" = true ]; then
         module_evidence='{}'
         if [ -s "$work_dir/result.json" ]; then module_evidence="$(cat "$work_dir/result.json")"; fi
-        printf '%s true %s\n' "$task_id" "$module_evidence" > "$agent_dir/result"
+        printf '%s true %s %s\n' "$task_id" "$module_evidence" "$timeline" > "$agent_dir/result"
       else
-        printf '%s false {}\n' "$task_id" > "$agent_dir/result"
+        printf '%s false {} %s\n' "$task_id" "$timeline" > "$agent_dir/result"
       fi
       if [ -n "$proxy_pid" ]; then kill "$proxy_pid" 2>/dev/null || true; wait "$proxy_pid" 2>/dev/null || true; fi
       rm -rf -- "$work_dir"
@@ -907,8 +1110,9 @@ PANEL_INSTALL)PANEL";
   replace_all(command, "__KEY__", agent_key);
   replace_all(command, "__ENDPOINT__", base_url + "/api/agent/heartbeat");
   const char* private_module_url = std::getenv("PANEL_MODULE_ENDPOINT");
-  replace_all(command, "__MODULE_ENDPOINT__", private_module_url && *private_module_url
-                  ? std::string(private_module_url) : base_url + "/api/agent/module");
+  replace_all(command, "__MODULE_ENDPOINT__",
+              private_module_url && *private_module_url ? std::string(private_module_url)
+                                                        : base_url + "/api/agent/module");
   replace_all(command, "__ENROLL_ENDPOINT__", base_url + "/api/agent/wg-enroll");
   replace_all(command, "__HELPER_URL__", base_url + "/api/agent/wg-client");
   replace_all(command, "__HELPER_SHA__", wg_client_sha);
@@ -923,12 +1127,14 @@ bool valid_signature(const std::string& id, const std::string& name, int64_t tim
                      const std::string& info) {
   const auto now = static_cast<int64_t>(std::time(nullptr));
   if (timestamp < now - 45 || timestamp > now + 45 || nonce.size() != 32 ||
-      signature.size() != 64 || name.find('|') != std::string::npos) return false;
+      signature.size() != 64 || name.find('|') != std::string::npos)
+    return false;
   const auto is_hex = [](unsigned char ch) {
     return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
   };
   if (!std::all_of(nonce.begin(), nonce.end(), is_hex) ||
-      !std::all_of(signature.begin(), signature.end(), is_hex)) return false;
+      !std::all_of(signature.begin(), signature.end(), is_hex))
+    return false;
   const auto nibble = [](char ch) -> unsigned {
     return ch <= '9' ? static_cast<unsigned>(ch - '0') : static_cast<unsigned>(ch - 'a' + 10);
   };
@@ -941,9 +1147,10 @@ bool valid_signature(const std::string& id, const std::string& name, int64_t tim
                               (info.empty() ? "" : "|" + info);
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned int length = 0;
-  if (!HMAC(EVP_sha256(), key, sizeof(key),
-            reinterpret_cast<const unsigned char*>(message.data()), message.size(),
-            digest, &length) || length != 32) return false;
+  if (!HMAC(EVP_sha256(), key, sizeof(key), reinterpret_cast<const unsigned char*>(message.data()),
+            message.size(), digest, &length) ||
+      length != 32)
+    return false;
   constexpr char hex[] = "0123456789abcdef";
   std::string expected;
   expected.reserve(64);
@@ -961,21 +1168,25 @@ json connection_status() {
                                    ? "http://" + probe.host + ":" + std::to_string(agent_port)
                                    : tunnel.url;
   return {
-    {"port", agent_port},
-    {"adminPort", listen_port},
-    {"probe", {{"state", probe.state}, {"host", probe.host}, {"checkedAt", probe.checked_at},
-               {"source", "hackmyip.com"}}},
-    {"tunnel", {{"state", tunnel.state}, {"url", tunnel.url}}},
-    {"agentCommand", agent_command(base_url)},
-    {"linuxAgentCommand", linux_agent_command(base_url)},
-    {"agents", live_agents_unlocked()},
-    {"agentPullReady", true},
+      {"port", agent_port},
+      {"adminPort", listen_port},
+      {"probe",
+       {{"state", probe.state},
+        {"host", probe.host},
+        {"checkedAt", probe.checked_at},
+        {"source", "hackmyip.com"}}},
+      {"tunnel", {{"state", tunnel.state}, {"url", tunnel.url}}},
+      {"agentCommand", agent_command(base_url)},
+      {"linuxAgentCommand", linux_agent_command(base_url)},
+      {"agents", live_agents_unlocked()},
+      {"agentPullReady", true},
   };
 }
 
 int free_debugger_port() {
   const int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (socket_fd < 0) return 0;
+  if (socket_fd < 0)
+    return 0;
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -993,35 +1204,40 @@ int free_debugger_port() {
 
 pid_t start_tunnel(int debugger_port) {
   const std::string remote = "-R0:localhost:" + std::to_string(agent_port);
-  const std::string debugger = "-L" + std::to_string(debugger_port) +
-                               ":localhost:" + std::to_string(debugger_port);
-  const std::string known_hosts = "UserKnownHostsFile=" +
-                                  (dist_dir.parent_path() / "build" / "pinggy_known_hosts").string();
+  const std::string debugger =
+      "-L" + std::to_string(debugger_port) + ":localhost:" + std::to_string(debugger_port);
+  const std::string known_hosts =
+      "UserKnownHostsFile=" + (dist_dir.parent_path() / "build" / "pinggy_known_hosts").string();
   const pid_t child = fork();
-  if (child != 0) return child;
+  if (child != 0)
+    return child;
   const int null_fd = open("/dev/null", O_RDWR);
   if (null_fd >= 0) {
     dup2(null_fd, STDIN_FILENO);
     dup2(null_fd, STDOUT_FILENO);
     dup2(null_fd, STDERR_FILENO);
-    if (null_fd > STDERR_FILENO) close(null_fd);
+    if (null_fd > STDERR_FILENO)
+      close(null_fd);
   }
-  if (admin_socket >= 0) close(admin_socket);
-  if (agent_socket >= 0) close(agent_socket);
-  execlp("ssh", "ssh", "-p", "443", "-T", "-o", "BatchMode=yes", "-o",
-         "ExitOnForwardFailure=yes", "-o", "StrictHostKeyChecking=accept-new", "-o",
-         known_hosts.c_str(), "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
-         "-o", "ServerAliveCountMax=3", remote.c_str(), debugger.c_str(),
-         "free.pinggy.io", static_cast<char*>(nullptr));
+  if (admin_socket >= 0)
+    close(admin_socket);
+  if (agent_socket >= 0)
+    close(agent_socket);
+  execlp("ssh", "ssh", "-p", "443", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+         "-o", "StrictHostKeyChecking=accept-new", "-o", known_hosts.c_str(), "-o",
+         "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+         remote.c_str(), debugger.c_str(), "free.pinggy.io", static_cast<char*>(nullptr));
   _exit(127);
 }
 
 void stop_tunnel(pid_t child) {
-  if (child <= 0) return;
+  if (child <= 0)
+    return;
   kill(child, SIGTERM);
   int status = 0;
   for (int attempt = 0; attempt < 20; ++attempt) {
-    if (waitpid(child, &status, WNOHANG) != 0) return;
+    if (waitpid(child, &status, WNOHANG) != 0)
+      return;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   kill(child, SIGKILL);
@@ -1030,7 +1246,8 @@ void stop_tunnel(pid_t child) {
 
 std::string read_tunnel_url(int debugger_port) {
   CURL* curl = curl_easy_init();
-  if (!curl) return "";
+  if (!curl)
+    return "";
   std::string body;
   const std::string url = "http://127.0.0.1:" + std::to_string(debugger_port) + "/urls";
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -1043,16 +1260,19 @@ std::string read_tunnel_url(int debugger_port) {
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_easy_cleanup(curl);
-  if (code != CURLE_OK || status != 200) return "";
+  if (code != CURLE_OK || status != 200)
+    return "";
   try {
     const auto response = json::parse(body);
     for (const auto& item : response.at("urls")) {
       if (item.is_string()) {
         const std::string candidate = item.get<std::string>();
-        if (candidate.rfind("https://", 0) == 0) return candidate;
+        if (candidate.rfind("https://", 0) == 0)
+          return candidate;
       }
     }
-  } catch (const std::exception&) {}
+  } catch (const std::exception&) {
+  }
   return "";
 }
 
@@ -1063,11 +1283,13 @@ void publish_tunnel(const std::string& state, const std::string& url = "") {
     changed = tunnel.state != state || tunnel.url != url;
     tunnel = {state, url};
   }
-  if (!changed) return;
+  if (!changed)
+    return;
   if (state == "active") {
     append_log("connect", "INFO", "Pinggy HTTPS tunnel is active", "HTTPS-тунель Pinggy активний");
   } else if (state == "error") {
-    append_log("connect", "WARN", "Pinggy tunnel disconnected; retrying", "Тунель Pinggy відключився; повторна спроба");
+    append_log("connect", "WARN", "Pinggy tunnel disconnected; retrying",
+               "Тунель Pinggy відключився; повторна спроба");
   }
 }
 
@@ -1106,7 +1328,8 @@ void manage_connection() {
       if (child < 0 && std::chrono::steady_clock::now() >= next_start) {
         debugger_port = free_debugger_port();
         child = debugger_port ? start_tunnel(debugger_port) : -1;
-        if (child > 0) publish_tunnel("starting");
+        if (child > 0)
+          publish_tunnel("starting");
         else {
           publish_tunnel("error");
           next_start = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -1114,7 +1337,8 @@ void manage_connection() {
       }
       if (child > 0) {
         const std::string url = read_tunnel_url(debugger_port);
-        if (!url.empty()) publish_tunnel("active", url);
+        if (!url.empty())
+          publish_tunnel("active", url);
       }
     }
     for (int tick = 0; tick < 10 && !stop_requested; ++tick) {
@@ -1126,7 +1350,8 @@ void manage_connection() {
 
 std::string query_value(const std::string& target, const std::string& name) {
   const auto query_start = target.find('?');
-  if (query_start == std::string::npos) return "";
+  if (query_start == std::string::npos)
+    return "";
   std::istringstream query(target.substr(query_start + 1));
   std::string part;
   while (std::getline(query, part, '&')) {
@@ -1140,13 +1365,20 @@ std::string query_value(const std::string& target, const std::string& name) {
 
 std::string content_type(const fs::path& path) {
   const auto extension = path.extension().string();
-  if (extension == ".html") return "text/html; charset=utf-8";
-  if (extension == ".js") return "text/javascript; charset=utf-8";
-  if (extension == ".css") return "text/css; charset=utf-8";
-  if (extension == ".svg") return "image/svg+xml";
-  if (extension == ".woff2") return "font/woff2";
-  if (extension == ".woff") return "font/woff";
-  if (extension == ".png") return "image/png";
+  if (extension == ".html")
+    return "text/html; charset=utf-8";
+  if (extension == ".js")
+    return "text/javascript; charset=utf-8";
+  if (extension == ".css")
+    return "text/css; charset=utf-8";
+  if (extension == ".svg")
+    return "image/svg+xml";
+  if (extension == ".woff2")
+    return "font/woff2";
+  if (extension == ".woff")
+    return "font/woff";
+  if (extension == ".png")
+    return "image/png";
   return "application/octet-stream";
 }
 
@@ -1154,48 +1386,60 @@ void send_all(int client, const std::string& data) {
   size_t offset = 0;
   while (offset < data.size()) {
     const ssize_t sent = send(client, data.data() + offset, data.size() - offset, MSG_NOSIGNAL);
-    if (sent <= 0) break;
+    if (sent <= 0)
+      break;
     offset += static_cast<size_t>(sent);
   }
 }
 
 void reply(int client, int status, const std::string& type, const std::string& body,
            bool head_only = false, const std::string& extra_headers = "") {
-  const char* reason = status == 200 ? "OK" : status == 400 ? "Bad Request" :
-                       status == 302 ? "Found" : status == 401 ? "Unauthorized" :
-                       status == 403 ? "Forbidden" :
-                       status == 404 ? "Not Found" : status == 405 ? "Method Not Allowed" :
-                       "Internal Server Error";
+  const char* reason = status == 200   ? "OK"
+                       : status == 400 ? "Bad Request"
+                       : status == 302 ? "Found"
+                       : status == 401 ? "Unauthorized"
+                       : status == 403 ? "Forbidden"
+                       : status == 404 ? "Not Found"
+                       : status == 405 ? "Method Not Allowed"
+                                       : "Internal Server Error";
   std::ostringstream header;
   header << "HTTP/1.1 " << status << ' ' << reason << "\r\n"
          << "Content-Type: " << type << "\r\n"
          << "Content-Length: " << body.size() << "\r\n"
          << "Cache-Control: no-store\r\n"
          << "X-Content-Type-Options: nosniff\r\n"
-         << "Connection: close\r\n" << extra_headers << "\r\n";
+         << "Connection: close\r\n"
+         << extra_headers << "\r\n";
   send_all(client, header.str());
-  if (!head_only) send_all(client, body);
+  if (!head_only)
+    send_all(client, body);
 }
 
 std::optional<std::string> request_body(int client, const std::string& request) {
   const auto header_end = request.find("\r\n\r\n");
-  if (header_end == std::string::npos) return std::nullopt;
+  if (header_end == std::string::npos)
+    return std::nullopt;
   size_t length = 0;
   std::istringstream headers(request.substr(0, header_end));
   std::string header;
   while (std::getline(headers, header)) {
     const auto colon = header.find(':');
     if (colon != std::string::npos && header.substr(0, colon) == "Content-Length") {
-      try { length = std::stoul(header.substr(colon + 1)); }
-      catch (const std::exception&) { return std::nullopt; }
+      try {
+        length = std::stoul(header.substr(colon + 1));
+      } catch (const std::exception&) {
+        return std::nullopt;
+      }
     }
   }
-  if (length == 0 || length > 4096) return std::nullopt;
+  if (length == 0 || length > 4096)
+    return std::nullopt;
   std::string body = request.substr(header_end + 4);
   char buffer[2048];
   while (body.size() < length) {
     const ssize_t count = recv(client, buffer, std::min(sizeof(buffer), length - body.size()), 0);
-    if (count <= 0) return std::nullopt;
+    if (count <= 0)
+      return std::nullopt;
     body.append(buffer, static_cast<size_t>(count));
   }
   return body.substr(0, length);
@@ -1208,33 +1452,658 @@ std::string login_page(bool ukrainian) {
   const std::string submit = ukrainian ? "Увійти" : "Sign in";
   const std::string error = ukrainian ? "Неправильні дані доступу" : "Invalid credentials";
   return "<!doctype html><html lang='" + std::string(ukrainian ? "uk" : "en") +
-         "'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+         "'><meta charset='utf-8'><meta name='viewport' "
+         "content='width=device-width,initial-scale=1'>"
          "<link rel='icon' type='image/png' href='/logo.png'>"
-         "<title>" + title + " · certua-advisory-lab</title><style>"
-         "@font-face{font-family:PlexLatin;font-weight:400;src:url('/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2')}"
-         "@font-face{font-family:PlexLatin;font-weight:600;src:url('/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2')}"
-         "@font-face{font-family:PlexCyrillic;font-weight:400;src:url('/fonts/ibm-plex-sans-cyrillic-400-normal.woff2') format('woff2')}"
-         "@font-face{font-family:PlexCyrillic;font-weight:600;src:url('/fonts/ibm-plex-sans-cyrillic-600-normal.woff2') format('woff2')}"
-         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:#17212b;color:#f0f5f6;font:15px PlexLatin,sans-serif}"
+         "<title>" +
+         title +
+         " · certua-advisory-lab</title><style>"
+         "@font-face{font-family:PlexLatin;font-weight:400;src:url('/fonts/"
+         "ibm-plex-sans-latin-400-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexLatin;font-weight:600;src:url('/fonts/"
+         "ibm-plex-sans-latin-600-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexCyrillic;font-weight:400;src:url('/fonts/"
+         "ibm-plex-sans-cyrillic-400-normal.woff2') format('woff2')}"
+         "@font-face{font-family:PlexCyrillic;font-weight:600;src:url('/fonts/"
+         "ibm-plex-sans-cyrillic-600-normal.woff2') format('woff2')}"
+         "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;"
+         "padding:20px;background:radial-gradient(ellipse at 18% 8%,rgba(0,109,231,.3),transparent "
+         "52%),radial-gradient(ellipse at 87% 5%,rgba(93,57,195,.24),transparent "
+         "48%),linear-gradient(145deg,#040b19,#091a2c 54%,#040b18);color:#f3f8ff;font:15px "
+         "PlexLatin,sans-serif}"
          "html[lang=uk] body{font-family:PlexCyrillic,PlexLatin,sans-serif}"
-         "main{width:min(420px,100%);border:1px solid #394b58;background:#1d2933;padding:32px}"
-         ".brand{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-weight:600}"
-         ".brand-mark{display:block;flex:0 0 38px;width:38px;height:52px;background:url('/logo.png') center/94px 70px no-repeat}"
+         "main{width:min(440px,100%);border:1px solid "
+         "rgba(140,183,255,.3);border-radius:24px;background:rgba(10,28,53,.55);padding:34px;box-"
+         "shadow:inset 0 1px rgba(220,240,255,.14),0 24px 80px "
+         "rgba(0,4,16,.3);-webkit-backdrop-filter:blur(28px) "
+         "saturate(155%);backdrop-filter:blur(28px) saturate(155%)}"
+         ".brand{display:flex;align-items:center;gap:9px;margin-bottom:34px;font-weight:600}.brand-"
+         "name{display:grid;gap:3px}.brand-name strong{font-size:14px;line-height:1}.brand-name "
+         "small{color:#91aac7;font-size:9px;letter-spacing:.12em}"
+         ".brand-mark{display:block;flex:0 0 "
+         "42px;width:42px;height:52px;background:url('/logo.png') center 25%/120px 120px "
+         "no-repeat;mix-blend-mode:screen}"
          "h1{font-size:22px;margin:0 0 24px;letter-spacing:-.03em}"
-         "label{display:block;margin:16px 0 7px;color:#becbd2;font-size:13px;font-weight:600}"
-         "input{width:100%;height:42px;padding:8px 11px;border:1px solid #526877;border-radius:3px;background:#17232d;color:#f0f5f6;font:inherit}"
-         "input:focus-visible,button:focus-visible{outline:2px solid #36c8bf;outline-offset:2px}"
-         "button{width:100%;height:42px;margin-top:24px;border:1px solid #36c8bf;border-radius:4px;background:#36c8bf;color:#11232b;font:inherit;font-size:14px;font-weight:600;cursor:pointer}"
-         "button:hover{background:#65ded4}#error{min-height:18px;color:#f2a2a8;margin-top:12px;font-size:13px}</style>"
-         "<main><div class='brand'><span class='brand-mark' aria-hidden='true'></span><span>certua-advisory-lab</span></div><h1>" + title + "</h1>"
-         "<form><label for='username'>" + username + "</label><input id='username' autocomplete='username' required>"
-         "<label for='password'>" + password + "</label><input id='password' type='password' autocomplete='current-password' required>"
-         "<button>" + submit + "</button><div id='error' role='alert'></div></form></main><script>"
-         "document.querySelector('form').addEventListener('submit',async function(event){event.preventDefault();"
-         "const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},"
-         "body:JSON.stringify({username:document.getElementById('username').value,password:document.getElementById('password').value})});"
-         "if(response.ok){location.href='/main'+location.search}else{document.getElementById('error').textContent='" + error + "'}});"
+         "label{display:block;margin:16px 0 7px;color:#c0d0e5;font-size:13px;font-weight:600}"
+         "input{width:100%;height:44px;padding:8px 12px;border:1px solid "
+         "rgba(151,203,255,.34);border-radius:9px;background:rgba(4,18,38,.62);color:#f3f8ff;font:"
+         "inherit}"
+         "input:focus-visible,button:focus-visible{outline:2px solid #4ccaf4;outline-offset:2px}"
+         "button{width:100%;height:44px;margin-top:24px;border:1px solid "
+         "rgba(133,211,255,.66);border-radius:11px;background:linear-gradient(115deg,#286df2,#"
+         "2c9bf5 62%,#46c8f4);box-shadow:inset 0 1px rgba(232,250,255,.34),0 4px 18px "
+         "rgba(33,112,255,.4);color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:"
+         "pointer}"
+         "button:hover{background:linear-gradient(115deg,#387eff,#3baafa "
+         "62%,#67d8f8)}#error{min-height:18px;color:#f2a2a8;margin-top:12px;font-size:13px}</style>"
+         "<main><div class='brand'><span class='brand-mark' aria-hidden='true'></span><span "
+         "class='brand-name'><strong>CERT-UA</strong><small>ADVISORY LAB</small></span></div><h1>" +
+         title +
+         "</h1>"
+         "<form><label for='username'>" +
+         username +
+         "</label><input id='username' autocomplete='username' required>"
+         "<label for='password'>" +
+         password +
+         "</label><input id='password' type='password' autocomplete='current-password' required>"
+         "<button>" +
+         submit +
+         "</button><div id='error' role='alert'></div></form></main><script>"
+         "document.querySelector('form').addEventListener('submit',async "
+         "function(event){event.preventDefault();"
+         "const response=await "
+         "fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},"
+         "body:JSON.stringify({username:document.getElementById('username').value,password:"
+         "document.getElementById('password').value})});"
+         "if(response.ok){location.href='/"
+         "main'+location.search}else{document.getElementById('error').textContent='" +
+         error +
+         "'}});"
          "</script></html>";
+}
+
+bool dependency_preflight_failed(const json& result) {
+  if (!result.value("ok", false) || !result.contains("evidence") || !result["evidence"].is_object())
+    return false;
+  const auto& evidence = result["evidence"];
+  return evidence.contains("preflight") && evidence["preflight"].is_object() &&
+         evidence["preflight"].contains("ok") && evidence["preflight"]["ok"].is_boolean() &&
+         !evidence["preflight"]["ok"].get<bool>();
+}
+
+void record_task_timeline(const std::string& task_id, const std::string& agent_id,
+                          const json& result) {
+  if (result.contains("timeline"))
+    record_phase_timing(task_id, agent_id, result["timeline"]);
+  else if (result.contains("evidence") && result["evidence"].is_object() &&
+           result["evidence"].contains("timeline"))
+    record_phase_timing(task_id, agent_id, result["evidence"]["timeline"]);
+}
+
+void emit_phase_events(const std::string& task_id, const std::string& scenario,
+                       const json& evidence) {
+  const auto manifest = load_module(scenario);
+  if (!manifest || !manifest->contains("flow") || !(*manifest)["flow"].is_array() ||
+      !evidence.contains("phases") || !evidence["phases"].is_object())
+    return;
+  const auto& phases = evidence["phases"];
+  for (const auto& stage : (*manifest)["flow"]) {
+    if (!stage.is_object() || !stage.contains("id") || !stage["id"].is_string())
+      continue;
+    const std::string phase = stage["id"].get<std::string>();
+    if (phase.empty() || phase.size() > 32 ||
+        !std::all_of(phase.begin(), phase.end(), [](unsigned char ch) {
+          return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
+        }))
+      continue;
+    if (phases.contains(phase) && phases[phase].is_boolean() && phases[phase].get<bool>())
+      task_event(task_id, "phase_" + phase, "evidence", "standard");
+  }
+}
+
+void emit_evidence_events(const std::string& task_id, const std::string& verbosity,
+                          const std::string& scenario, const json& evidence) {
+  if (verbosity != "standard") {
+    if (evidence.value("config", false))
+      task_event(task_id, "config_prepared", "evidence", "detailed");
+    if (evidence.value("download", false))
+      task_event(task_id, "stage_downloaded", "evidence", "detailed");
+    if (evidence.value("executed", false))
+      task_event(task_id, "stage_executed", "evidence", "detailed");
+  }
+  if (evidence.contains("survey") && evidence["survey"].is_object())
+    task_event(task_id, "survey_reported", "evidence", "standard");
+  emit_phase_events(task_id, scenario, evidence);
+}
+
+void store_task_result(const std::string& agent_id, const json& result) {
+  if (!result.contains("id") || !result["id"].is_number_unsigned() || !result.contains("ok") ||
+      !result["ok"].is_boolean())
+    return;
+  const std::string task_id = std::to_string(result["id"].get<uint64_t>());
+  const bool missing_dependencies = dependency_preflight_failed(result);
+  const bool effective_ok = result["ok"].get<bool>() && !missing_dependencies;
+  json stored_result = result;
+  if (missing_dependencies) {
+    stored_result["ok"] = false;
+    stored_result["error"] = "missing dependencies";
+  }
+  record_task_timeline(task_id, agent_id, result);
+  const auto updated = database->query(
+      "UPDATE public.panel_tasks SET status = $3, result = $4::jsonb, "
+      "updated_at = now() WHERE id = $1 AND agent_id = $2 AND status = 'running' RETURNING "
+      "verbosity, scenario",
+      {task_id, agent_id, effective_ok ? "completed" : "failed", stored_result.dump()});
+  if (updated.empty())
+    return;
+  if (missing_dependencies)
+    task_event(task_id, "dependency_missing", "evidence", "standard");
+  if (result.contains("evidence") && result["evidence"].is_object())
+    emit_evidence_events(task_id, updated[0][0], updated[0][1], result["evidence"]);
+  task_event(task_id, effective_ok ? "completed" : "failed", "server", "standard");
+}
+
+void store_task_event(const std::string& agent_id, const json& event) {
+  if (!event.contains("id") || !event["id"].is_number_unsigned() || !event.contains("code") ||
+      !event["code"].is_string())
+    return;
+  const std::string code = event["code"].get<std::string>();
+  if (!allowed_agent_event(code))
+    return;
+  database->query(
+      "INSERT INTO public.panel_task_events (task_id, code, source, level) "
+      "SELECT id, $3, 'agent', $4 FROM public.panel_tasks "
+      "WHERE id = $1::bigint AND agent_id = $2 AND status = 'running' "
+      "ON CONFLICT (task_id, code) DO NOTHING",
+      {std::to_string(event["id"].get<uint64_t>()), agent_id, code,
+       code == "key_ready" || code == "hash_verified" ? "trace" : "detailed"});
+}
+
+json dispatch_next_task(const std::string& agent_id, const std::string& nonce) {
+  const auto queued = database->query(
+      "UPDATE public.panel_tasks SET status = 'running', updated_at = now() "
+      "WHERE id = (SELECT id FROM public.panel_tasks WHERE agent_id = $1 AND status = 'queued' "
+      "ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id",
+      {agent_id});
+  if (queued.empty())
+    return {{"ok", true}};
+
+  const std::string task_id = queued[0][0];
+  task_event(task_id, "dispatched", "server", "standard");
+  database->query(
+      "INSERT INTO public.panel_siem_checks (task_id, state) VALUES ($1::bigint, $2) "
+      "ON CONFLICT (task_id) DO NOTHING",
+      {task_id, siem.ready() ? "waiting" : "unconfigured"});
+  const auto module_rows = database->query(
+      "SELECT scenario, verbosity FROM public.panel_tasks WHERE id = $1", {task_id});
+  const std::string module = module_rows[0][0];
+  const auto manifest = load_module(module);
+  const bool windows = manifest && manifest->value("platform", "") == "windows";
+  const std::string script = module_file(module, windows ? "run.ps1" : "run.sh");
+  if (script.empty()) {
+    database->query(
+        "UPDATE public.panel_tasks SET status = 'failed', result = '{\"error\":\"module "
+        "missing\"}'::jsonb "
+        "WHERE id = $1",
+        {task_id});
+    database->query(
+        "UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint",
+        {task_id});
+    task_event(task_id, "module_missing", "server", "standard");
+    return {{"ok", true}};
+  }
+
+  const std::string hash = sha256_hex(script);
+  const std::string signature =
+      agent_hmac_hex(agent_id + "|" + nonce + "|" + task_id + "|" + module + "|" + hash);
+  json response = {
+      {"ok", true},     {"task", std::stoull(task_id)},   {"module", module},
+      {"sha256", hash}, {"verbosity", module_rows[0][1]}, {"taskSignature", signature}};
+  if (windows)
+    response["script"] = script;
+  return response;
+}
+
+void handle_wg_enrollment(int client, const std::string& request) {
+  const auto body = request_body(client, request);
+  const auto payload = body ? json::parse(*body, nullptr, false) : json();
+  if (!payload.is_object()) {
+    reply(client, 400, "application/json", R"({"error":"invalid body"})");
+  } else {
+    const std::string id = payload.value("id", "");
+    const std::string name = payload.value("name", "");
+    const int64_t ts = payload.value("ts", int64_t{0});
+    const std::string nonce = payload.value("nonce", "");
+    const std::string signature = payload.value("signature", "");
+    const std::string pub = payload.value("publicKey", "");
+    const bool valid_key = pub.size() == 44 && pub.back() == '=' &&
+                           std::all_of(pub.begin(), pub.end() - 1, [](unsigned char ch) {
+                             return std::isalnum(ch) || ch == '+' || ch == '/';
+                           });
+    if (!valid_key || id.empty() || !valid_signature(id, name, ts, nonce, signature, "wg:" + pub)) {
+      reply(client, 403, "application/json", R"({"error":"invalid enrollment"})");
+    } else {
+      std::lock_guard lock(state_mutex);
+      if (used_nonces.contains(nonce)) {
+        reply(client, 403, "application/json", R"({"error":"replayed enrollment"})");
+      } else {
+        used_nonces[nonce] = std::chrono::steady_clock::now();
+        const auto rows = database->query(
+            "UPDATE public.panel_agents SET wg_public_key = $2, "
+            "wg_ip = COALESCE(wg_ip, '10.145.20.' || nextval('public.panel_wg_ip_seq')::text) "
+            "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
+            "RETURNING wg_ip",
+            {id, pub});
+        if (rows.empty())
+          reply(client, 403, "application/json", R"({"error":"agent unavailable"})");
+        else
+          reply(client, 200, "application/json",
+                json{{"ip", rows[0][0]},
+                     {"serverPublicKey", wg_server_public_key},
+                     {"endpoint", wg_public_endpoint}}
+                    .dump());
+      }
+    }
+  }
+  close(client);
+  return;
+}
+
+void handle_agent_heartbeat(int client, const std::string& request) {
+  char buffer[2048];
+  const auto header_end = request.find("\r\n\r\n");
+  size_t body_length = 0;
+  std::istringstream headers(request.substr(0, header_end));
+  std::string header;
+  while (std::getline(headers, header)) {
+    const auto colon = header.find(':');
+    if (colon != std::string::npos && header.substr(0, colon) == "Content-Length") {
+      body_length = std::stoul(header.substr(colon + 1));
+    }
+  }
+  if (header_end == std::string::npos || body_length == 0 || body_length > 8192) {
+    reply(client, 400, "application/json", R"({"error":"invalid body"})");
+  } else {
+    std::string body = request.substr(header_end + 4);
+    while (body.size() < body_length) {
+      const ssize_t count =
+          recv(client, buffer, std::min(sizeof(buffer), body_length - body.size()), 0);
+      if (count <= 0)
+        break;
+      body.append(buffer, static_cast<size_t>(count));
+    }
+    if (body.size() < body_length) {
+      reply(client, 400, "application/json", R"({"error":"incomplete body"})");
+    } else {
+      const auto payload = json::parse(body.substr(0, body_length));
+      const std::string id = payload.value("id", "");
+      const std::string name = payload.value("name", "");
+      const int64_t timestamp = payload.value("ts", int64_t{0});
+      const std::string nonce = payload.value("nonce", "");
+      const std::string signature = payload.value("signature", "");
+      const std::string info = payload.contains("info") && payload["info"].is_string()
+                                   ? payload["info"].get<std::string>()
+                                   : "";
+      const json parsed_info = info.empty() ? json::object() : json::parse(info, nullptr, false);
+      if (id.empty() || id.size() > 64 || name.empty() || name.size() > 80 ||
+          !std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+            return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || ch == '-';
+          })) {
+        reply(client, 400, "application/json", R"({"error":"invalid agent"})");
+      } else if (info.size() > 6144 || !parsed_info.is_object()) {
+        reply(client, 400, "application/json", R"({"error":"invalid info"})");
+      } else if (!valid_signature(id, name, timestamp, nonce, signature, info)) {
+        reply(client, 403, "application/json", R"({"error":"invalid signature"})");
+      } else {
+        bool is_new = false;
+        bool replay = false;
+        bool disabled = false;
+        {
+          std::lock_guard lock(state_mutex);
+          const auto now = std::chrono::steady_clock::now();
+          for (auto entry = used_nonces.begin(); entry != used_nonces.end();) {
+            if (now - entry->second > std::chrono::seconds(60))
+              entry = used_nonces.erase(entry);
+            else
+              ++entry;
+          }
+          replay = used_nonces.contains(nonce);
+          if (!replay) {
+            used_nonces[nonce] = now;
+            const auto rows =
+                database->query("SELECT disabled FROM public.panel_agents WHERE id = $1", {id});
+            disabled = !rows.empty() && rows[0][0] == "t";
+            if (!disabled) {
+              database->query(
+                  "INSERT INTO public.panel_agents (id, name, last_seen) VALUES ($1, $2, now()) "
+                  "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, last_seen = now()",
+                  {id, name});
+              if (!info.empty()) {
+                if (parsed_info.contains("os"))
+                  database->query("UPDATE public.panel_agents SET info = $2::jsonb WHERE id = $1",
+                                  {id, info});
+                if (parsed_info.contains("taskResult") && parsed_info["taskResult"].is_object())
+                  store_task_result(id, parsed_info["taskResult"]);
+                if (parsed_info.contains("taskEvent") && parsed_info["taskEvent"].is_object())
+                  store_task_event(id, parsed_info["taskEvent"]);
+              }
+              is_new = !agents.contains(id);
+              agents[id] = {name, now_utc(), now};
+            }
+          }
+        }
+        if (replay) {
+          reply(client, 403, "application/json", R"({"error":"replayed heartbeat"})");
+        } else if (disabled) {
+          reply(client, 200, "application/json", R"({"disconnect":true})");
+        } else {
+          if (is_new) {
+            append_log("agents", "INFO", "Agent connected: " + name, "Агент підключився: " + name);
+            append_log("connect", "INFO", "Agent connected: " + name, "Агент підключився: " + name);
+          }
+          if (parsed_info.contains("taskEvent")) {
+            reply(client, 200, "application/json", R"({"ok":true})");
+            close(client);
+            return;
+          }
+          reply(client, 200, "application/json", dispatch_next_task(id, nonce).dump());
+        }
+      }
+    }
+  }
+  close(client);
+  return;
+}
+
+void handle_admin_get(int client, const std::string& path, const std::string& target,
+                      bool head_only) {
+  if (path == "/api/health") {
+    reply(client, 200, "application/json", json{{"ok", true}}.dump(), head_only);
+  } else if (path == "/api/connection") {
+    if (query_value(target, "check") == "1")
+      refresh_probe();
+    reply(client, 200, "application/json", connection_status().dump(), head_only);
+  } else if (path == "/api/agents") {
+    json connected;
+    {
+      std::lock_guard lock(state_mutex);
+      connected = live_agents_unlocked();
+    }
+    reply(client, 200, "application/json",
+          json{{"agents", connected}, {"pullImplemented", true}}.dump(), head_only);
+  } else if (path == "/api/siem") {
+    reply(client, 200, "application/json",
+          json{{"provider", "splunk"},
+               {"configured", siem.ready()},
+               {"index", siem.index},
+               {"hostFields", siem.host_fields},
+               {"correlation", "host-and-time"},
+               {"graceSeconds", siem.grace_seconds}}
+              .dump(),
+          head_only);
+  } else if (path == "/api/tasks") {
+    json tasks = json::array();
+    const auto summary = database->query(
+        "SELECT COUNT(*) FILTER (WHERE status IN ('queued', 'running')), "
+        "COUNT(*) FILTER (WHERE status = 'completed') FROM public.panel_tasks");
+    const auto rows = database->query(
+        "SELECT t.id, t.agent_id, a.name, t.scenario, t.status, "
+        "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
+        "t.result::text, t.verbosity, "
+        "COALESCE(s.state, CASE WHEN t.status = 'queued' THEN 'waiting' ELSE 'not_recorded' END), "
+        "COALESCE(s.alerts::text, '[]'), "
+        "COALESCE(to_char(s.checked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), ''), "
+        "COALESCE(s.error, ''), COALESCE(a.siem_host, a.name) "
+        "FROM public.panel_tasks t JOIN public.panel_agents a ON a.id = t.agent_id "
+        "LEFT JOIN public.panel_siem_checks s ON s.task_id = t.id "
+        "ORDER BY t.id DESC LIMIT 100");
+    for (const auto& row : rows)
+      tasks.push_back({{"id", row[0]},
+                       {"agentId", row[1]},
+                       {"agentName", row[2]},
+                       {"scenario", row[3]},
+                       {"status", row[4]},
+                       {"createdAt", row[5]},
+                       {"result", json::parse(row[6])},
+                       {"verbosity", row[7]},
+                       {"siem",
+                        {{"state", row[8]},
+                         {"alerts", json::parse(row[9])},
+                         {"graceSeconds", siem.grace_seconds},
+                         {"checkedAt", row[10]},
+                         {"error", row[11]},
+                         {"host", row[12]}}}});
+    reply(
+        client, 200, "application/json",
+        json{{"tasks", tasks},
+             {"counts",
+              {{"active", std::stoull(summary[0][0])}, {"completed", std::stoull(summary[0][1])}}}}
+            .dump(),
+        head_only);
+  } else if (path == "/api/task-events") {
+    const std::string task_id = query_value(target, "task");
+    if (task_id.empty() || task_id.size() > 20 ||
+        !std::all_of(task_id.begin(), task_id.end(),
+                     [](unsigned char ch) { return std::isdigit(ch); })) {
+      reply(client, 400, "application/json", R"({"error":"invalid task"})", head_only);
+    } else {
+      json events = json::array();
+      const auto rows = database->query(
+          "SELECT e.id, e.code, e.source, e.level, "
+          "to_char(COALESCE(e.occurred_at, e.created_at) AT TIME ZONE 'UTC', "
+          "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), "
+          "to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), "
+          "COALESCE(e.duration_ms::text, ''), COALESCE(e.delay_ms::text, ''), "
+          "(e.occurred_at IS NOT NULL)::text "
+          "FROM public.panel_task_events e WHERE e.task_id = $1::bigint "
+          "ORDER BY COALESCE(e.occurred_at, e.created_at), e.id LIMIT 250",
+          {task_id});
+      for (const auto& row : rows)
+        events.push_back({{"id", row[0]},
+                          {"code", row[1]},
+                          {"source", row[2]},
+                          {"level", row[3]},
+                          {"time", row[4]},
+                          {"receivedAt", row[5]},
+                          {"durationMs", row[6].empty() ? json(nullptr) : json(std::stoi(row[6]))},
+                          {"delayMs", row[7].empty() ? json(nullptr) : json(std::stoi(row[7]))},
+                          {"measured", row[8] == "true"}});
+      reply(client, 200, "application/json", json{{"task", task_id}, {"events", events}}.dump(),
+            head_only);
+    }
+  } else if (path == "/api/modules") {
+    json modules = json::array();
+    if (fs::exists(modules_dir))
+      for (const auto& entry : fs::directory_iterator(modules_dir)) {
+        if (!entry.is_directory())
+          continue;
+        const auto module = load_module(entry.path().filename().string());
+        if (module)
+          modules.push_back(*module);
+      }
+    reply(client, 200, "application/json", json{{"modules", modules}}.dump(), head_only);
+  } else if (path == "/api/creds") {
+    reply(client, 200, "application/json", json{{"username", load_account().username}}.dump(),
+          head_only);
+  } else if (path == "/api/logs") {
+    const std::string tab = query_value(target, "tab");
+    const std::string language = query_value(target, "lang") == "uk" ? "uk" : "en";
+    json entries = json::array();
+    {
+      std::lock_guard lock(state_mutex);
+      for (const auto& item : logs[tab]) {
+        entries.push_back({{"time", item.time},
+                           {"level", item.level},
+                           {"message", language == "uk" ? item.uk : item.en}});
+      }
+    }
+    reply(client, 200, "application/json", json{{"tab", tab}, {"entries", entries}}.dump(),
+          head_only);
+  } else if (path.rfind("/api/", 0) == 0) {
+    reply(client, 404, "application/json", R"({"error":"not found"})", head_only);
+  } else {
+    if (path.find("..") != std::string::npos || path.find('\\') != std::string::npos) {
+      reply(client, 400, "text/plain", "Invalid path", head_only);
+    } else {
+      fs::path file = dist_dir / path.substr(1);
+      if (path == "/" || !fs::is_regular_file(file))
+        file = dist_dir / "index.html";
+      std::ifstream stream(file, std::ios::binary);
+      if (!stream) {
+        reply(client, 404, "text/plain", "Not found", head_only);
+      } else {
+        const std::string body((std::istreambuf_iterator<char>(stream)),
+                               std::istreambuf_iterator<char>());
+        reply(client, 200, content_type(file), body, head_only);
+      }
+    }
+  }
+}
+
+void handle_logout(int client, const std::string& request) {
+  {
+    std::lock_guard lock(state_mutex);
+    sessions.erase(cookie_value(request, "panel_session"));
+  }
+  reply(client, 200, "application/json", R"({"ok":true})", false,
+        "Set-Cookie: panel_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");
+  close(client);
+  return;
+}
+
+void handle_update_credentials(int client, const std::string& request) {
+  const auto body = request_body(client, request);
+  const auto payload = body ? json::parse(*body, nullptr, false) : json();
+  if (!payload.is_object() || !payload.contains("username") || !payload["username"].is_string() ||
+      !payload.contains("currentPassword") || !payload["currentPassword"].is_string() ||
+      !payload.contains("newPassword") || !payload["newPassword"].is_string()) {
+    reply(client, 400, "application/json", R"({"error":"invalid request"})");
+  } else {
+    const std::string username = payload["username"].get<std::string>();
+    const std::string current = payload["currentPassword"].get<std::string>();
+    const std::string next = payload["newPassword"].get<std::string>();
+    if (username.empty() || username.size() > 64 || next.size() < 16 || next.size() > 256) {
+      reply(client, 400, "application/json", R"({"error":"username or password length invalid"})");
+    } else if (!check_account(load_account().username, current)) {
+      reply(client, 403, "application/json", R"({"error":"current password invalid"})");
+    } else {
+      const std::string salt = random_token().substr(0, 32);
+      database->query(
+          "UPDATE public.panel_admin SET username = $1, salt = $2, password_hash = $3 WHERE id = 1",
+          {username, salt, password_digest(next, salt)});
+      {
+        std::lock_guard lock(state_mutex);
+        sessions.clear();
+      }
+      append_log("creds", "INFO", "Panel credentials changed", "Дані входу до панелі змінено");
+      reply(client, 200, "application/json", R"({"ok":true})", false,
+            "Set-Cookie: panel_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");
+    }
+  }
+  close(client);
+  return;
+}
+
+void handle_disconnect_agent(int client, const std::string& request) {
+  const auto body = request_body(client, request);
+  const auto payload = body ? json::parse(*body, nullptr, false) : json();
+  if (!payload.is_object() || !payload.contains("id") || !payload["id"].is_string() ||
+      payload["id"].get<std::string>().size() > 64) {
+    reply(client, 400, "application/json", R"({"error":"invalid agent"})");
+  } else {
+    const std::string id = payload["id"].get<std::string>();
+    const auto rows = database->query(
+        "UPDATE public.panel_agents SET disabled = true WHERE id = $1 AND NOT disabled RETURNING "
+        "name",
+        {id});
+    if (rows.empty()) {
+      reply(client, 404, "application/json", R"({"error":"agent not found"})");
+    } else {
+      {
+        std::lock_guard lock(state_mutex);
+        agents.erase(id);
+      }
+      append_log("agents", "INFO", "Agent disconnected: " + rows[0][0],
+                 "Агента відключено: " + rows[0][0]);
+      reply(client, 200, "application/json", R"({"ok":true})");
+    }
+  }
+  close(client);
+  return;
+}
+
+void handle_siem_host(int client, const std::string& request) {
+  const auto body = request_body(client, request);
+  const auto payload = body ? json::parse(*body, nullptr, false) : json();
+  if (!payload.is_object() || !payload.contains("id") || !payload["id"].is_string() ||
+      !payload.contains("host") || !payload["host"].is_string()) {
+    reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
+  } else {
+    const std::string id = payload["id"].get<std::string>();
+    const std::string host = payload["host"].get<std::string>();
+    const bool valid = !id.empty() && id.size() <= 64 && !host.empty() && host.size() <= 253 &&
+                       std::all_of(host.begin(), host.end(), [](unsigned char ch) {
+                         return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
+                       });
+    if (!valid)
+      reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
+    else {
+      const auto rows = database->query(
+          "UPDATE public.panel_agents SET siem_host = $2 WHERE id = $1 AND NOT disabled RETURNING "
+          "id",
+          {id, host});
+      if (rows.empty())
+        reply(client, 404, "application/json", R"({"error":"agent not found"})");
+      else
+        reply(client, 200, "application/json", json{{"id", id}, {"host", host}}.dump());
+    }
+  }
+  close(client);
+  return;
+}
+
+void handle_create_task(int client, const std::string& request) {
+  const auto body = request_body(client, request);
+  const auto payload = body ? json::parse(*body, nullptr, false) : json();
+  if (!payload.is_object() || !payload.contains("module") || !payload["module"].is_string() ||
+      !payload.contains("agentId") || !payload["agentId"].is_string()) {
+    reply(client, 400, "application/json", R"({"error":"invalid task"})");
+  } else {
+    const std::string id = payload["agentId"].get<std::string>();
+    const std::string module = payload["module"].get<std::string>();
+    const std::string verbosity = payload.contains("verbosity") && payload["verbosity"].is_string()
+                                      ? payload["verbosity"].get<std::string>()
+                                      : "standard";
+    if (verbosity != "standard" && verbosity != "detailed" && verbosity != "trace") {
+      reply(client, 400, "application/json", R"({"error":"invalid verbosity"})");
+      close(client);
+      return;
+    }
+    const auto selected_module = load_module(module);
+    if (!selected_module) {
+      reply(client, 404, "application/json", R"({"error":"module not found"})");
+      close(client);
+      return;
+    }
+    const bool windows = selected_module->value("platform", "") == "windows";
+    const auto rows = database->query(
+        "INSERT INTO public.panel_tasks (agent_id, scenario, verbosity) "
+        "SELECT id, $2, $3 FROM public.panel_agents "
+        "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
+        "AND ($4 = 'windows' AND info->>'os' LIKE 'Microsoft Windows%' "
+        "OR $4 = 'linux' AND info->>'os' = 'Linux') RETURNING id",
+        {id, module, verbosity, windows ? "windows" : "linux"});
+    if (rows.empty())
+      reply(client, 404, "application/json", R"({"error":"compatible agent unavailable"})");
+    else {
+      task_event(rows[0][0], "queued", "server", "standard");
+      append_log("tasks", "INFO", module + " queued for " + id,
+                 module + " поставлено в чергу для " + id);
+      reply(client, 200, "application/json", json{{"id", std::stoull(rows[0][0])}}.dump());
+    }
+  }
+  close(client);
+  return;
 }
 
 // Route requests by listener so agent traffic cannot reach the admin UI or authenticated APIs.
@@ -1243,7 +2112,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
   char buffer[2048];
   while (request.size() < 8192 && request.find("\r\n\r\n") == std::string::npos) {
     const ssize_t received = recv(client, buffer, sizeof(buffer), 0);
-    if (received <= 0) break;
+    if (received <= 0)
+      break;
     request.append(buffer, static_cast<size_t>(received));
   }
   std::istringstream line(request.substr(0, request.find("\r\n")));
@@ -1252,17 +2122,22 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
   const std::string path = target.substr(0, target.find('?'));
   if ((module_listener || (agent_listener && module_socket < 0)) && method == "GET" &&
       path == "/api/agent/module") {
-    const std::string content = module_file(query_value(target, "name"), query_value(target, "file"));
-    if (content.empty()) reply(client, 404, "application/json", R"({"error":"not found"})");
-    else reply(client, 200, "text/x-shellscript; charset=utf-8", content);
+    const std::string content =
+        module_file(query_value(target, "name"), query_value(target, "file"));
+    if (content.empty())
+      reply(client, 404, "application/json", R"({"error":"not found"})");
+    else
+      reply(client, 200, "text/x-shellscript; charset=utf-8", content);
     close(client);
     return;
   }
   if (agent_listener && method == "GET" && path == "/api/agent/wg-client") {
     std::ifstream file(dist_dir.parent_path() / "build/wg-client", std::ios::binary);
-    if (!file) reply(client, 404, "application/json", R"({"error":"not found"})");
-    else reply(client, 200, "application/octet-stream",
-               std::string(std::istreambuf_iterator<char>(file), {}));
+    if (!file)
+      reply(client, 404, "application/json", R"({"error":"not found"})");
+    else
+      reply(client, 200, "application/octet-stream",
+            std::string(std::istreambuf_iterator<char>(file), {}));
     close(client);
     return;
   }
@@ -1271,8 +2146,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
     close(client);
     return;
   }
-  if (agent_listener && (method != "POST" ||
-      (path != "/api/agent/heartbeat" && path != "/api/agent/wg-enroll"))) {
+  if (agent_listener &&
+      (method != "POST" || (path != "/api/agent/heartbeat" && path != "/api/agent/wg-enroll"))) {
     reply(client, 404, "application/json", R"({"error":"not found"})");
     close(client);
     return;
@@ -1291,243 +2166,19 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
   const bool head_only = method == "HEAD";
   try {
     if (agent_listener && method == "POST" && path == "/api/agent/wg-enroll") {
-      const auto body = request_body(client, request);
-      const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object()) {
-        reply(client, 400, "application/json", R"({"error":"invalid body"})");
-      } else {
-        const std::string id = payload.value("id", "");
-        const std::string name = payload.value("name", "");
-        const int64_t ts = payload.value("ts", int64_t{0});
-        const std::string nonce = payload.value("nonce", "");
-        const std::string signature = payload.value("signature", "");
-        const std::string pub = payload.value("publicKey", "");
-        const bool valid_key = pub.size() == 44 && pub.back() == '=' &&
-            std::all_of(pub.begin(), pub.end() - 1, [](unsigned char ch) {
-              return std::isalnum(ch) || ch == '+' || ch == '/';
-            });
-        if (!valid_key || id.empty() || !valid_signature(id, name, ts, nonce, signature, "wg:" + pub)) {
-          reply(client, 403, "application/json", R"({"error":"invalid enrollment"})");
-        } else {
-          std::lock_guard lock(state_mutex);
-          if (used_nonces.contains(nonce)) {
-            reply(client, 403, "application/json", R"({"error":"replayed enrollment"})");
-          } else {
-            used_nonces[nonce] = std::chrono::steady_clock::now();
-            const auto rows = database->query(
-                "UPDATE public.panel_agents SET wg_public_key = $2, "
-                "wg_ip = COALESCE(wg_ip, '10.145.20.' || nextval('public.panel_wg_ip_seq')::text) "
-                "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
-                "RETURNING wg_ip", {id, pub});
-            if (rows.empty()) reply(client, 403, "application/json", R"({"error":"agent unavailable"})");
-            else reply(client, 200, "application/json",
-                       json{{"ip", rows[0][0]}, {"serverPublicKey", wg_server_public_key},
-                            {"endpoint", wg_public_endpoint}}.dump());
-          }
-        }
-      }
-      close(client);
+      handle_wg_enrollment(client, request);
       return;
     }
     if (method == "POST" && path == "/api/agent/heartbeat") {
-      const auto header_end = request.find("\r\n\r\n");
-      size_t body_length = 0;
-      std::istringstream headers(request.substr(0, header_end));
-      std::string header;
-      while (std::getline(headers, header)) {
-        const auto colon = header.find(':');
-        if (colon != std::string::npos && header.substr(0, colon) == "Content-Length") {
-          body_length = std::stoul(header.substr(colon + 1));
-        }
-      }
-      if (header_end == std::string::npos || body_length == 0 || body_length > 4096) {
-        reply(client, 400, "application/json", R"({"error":"invalid body"})");
-      } else {
-        std::string body = request.substr(header_end + 4);
-        while (body.size() < body_length) {
-          const ssize_t count = recv(client, buffer, std::min(sizeof(buffer), body_length - body.size()), 0);
-          if (count <= 0) break;
-          body.append(buffer, static_cast<size_t>(count));
-        }
-        if (body.size() < body_length) {
-          reply(client, 400, "application/json", R"({"error":"incomplete body"})");
-        } else {
-          const auto payload = json::parse(body.substr(0, body_length));
-          const std::string id = payload.value("id", "");
-          const std::string name = payload.value("name", "");
-          const int64_t timestamp = payload.value("ts", int64_t{0});
-          const std::string nonce = payload.value("nonce", "");
-          const std::string signature = payload.value("signature", "");
-          const std::string info = payload.contains("info") && payload["info"].is_string()
-                                       ? payload["info"].get<std::string>() : "";
-          const json parsed_info = info.empty() ? json::object() : json::parse(info, nullptr, false);
-          if (id.empty() || id.size() > 64 || name.empty() || name.size() > 80 ||
-                     !std::all_of(id.begin(), id.end(), [](unsigned char ch) {
-                       return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || ch == '-';
-                     })) {
-            reply(client, 400, "application/json", R"({"error":"invalid agent"})");
-          } else if (info.size() > 2048 || !parsed_info.is_object()) {
-            reply(client, 400, "application/json", R"({"error":"invalid info"})");
-          } else if (!valid_signature(id, name, timestamp, nonce, signature, info)) {
-            reply(client, 403, "application/json", R"({"error":"invalid signature"})");
-          } else {
-            bool is_new = false;
-            bool replay = false;
-            bool disabled = false;
-            {
-              std::lock_guard lock(state_mutex);
-              const auto now = std::chrono::steady_clock::now();
-              for (auto entry = used_nonces.begin(); entry != used_nonces.end();) {
-                if (now - entry->second > std::chrono::seconds(60)) entry = used_nonces.erase(entry);
-                else ++entry;
-              }
-              replay = used_nonces.contains(nonce);
-              if (!replay) {
-                used_nonces[nonce] = now;
-                const auto rows = database->query("SELECT disabled FROM public.panel_agents WHERE id = $1", {id});
-                disabled = !rows.empty() && rows[0][0] == "t";
-                if (!disabled) {
-                  database->query("INSERT INTO public.panel_agents (id, name, last_seen) VALUES ($1, $2, now()) "
-                                  "ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, last_seen = now()",
-                                  {id, name});
-                  if (!info.empty()) {
-                    if (parsed_info.contains("os"))
-                      database->query("UPDATE public.panel_agents SET info = $2::jsonb WHERE id = $1", {id, info});
-                    if (parsed_info.contains("taskResult") && parsed_info["taskResult"].is_object()) {
-                      const auto& result = parsed_info["taskResult"];
-                      if (result.contains("id") && result["id"].is_number_unsigned() &&
-                          result.contains("ok") && result["ok"].is_boolean()) {
-                        const std::string task_id = std::to_string(result["id"].get<uint64_t>());
-                        const bool ok = result["ok"].get<bool>();
-                        const bool missing_dependencies = ok && result.contains("evidence") &&
-                            result["evidence"].is_object() &&
-                            result["evidence"].contains("preflight") &&
-                            result["evidence"]["preflight"].is_object() &&
-                            result["evidence"]["preflight"].contains("ok") &&
-                            result["evidence"]["preflight"]["ok"].is_boolean() &&
-                            !result["evidence"]["preflight"]["ok"].get<bool>();
-                        const bool effective_ok = ok && !missing_dependencies;
-                        json stored_result = result;
-                        if (missing_dependencies) {
-                          stored_result["ok"] = false;
-                          stored_result["error"] = "missing dependencies";
-                        }
-                        const auto updated = database->query(
-                            "UPDATE public.panel_tasks SET status = $3, result = $4::jsonb, "
-                            "updated_at = now() WHERE id = $1 AND agent_id = $2 AND status = 'running' RETURNING verbosity, scenario",
-                            {task_id, id, effective_ok ? "completed" : "failed", stored_result.dump()});
-                        if (!updated.empty()) {
-                          if (missing_dependencies) task_event(task_id, "dependency_missing", "evidence", "standard");
-                          if (result.contains("evidence") && result["evidence"].is_object()) {
-                            const auto& evidence = result["evidence"];
-                            if (updated[0][0] != "standard") {
-                              if (evidence.value("config", false)) task_event(task_id, "config_prepared", "evidence", "detailed");
-                              if (evidence.value("download", false)) task_event(task_id, "stage_downloaded", "evidence", "detailed");
-                              if (evidence.value("executed", false)) task_event(task_id, "stage_executed", "evidence", "detailed");
-                            }
-                            if (evidence.contains("survey") && evidence["survey"].is_object())
-                              task_event(task_id, "survey_reported", "evidence", "standard");
-                            const auto manifest = load_module(updated[0][1]);
-                            if (manifest && manifest->contains("flow") && (*manifest)["flow"].is_array() &&
-                                evidence.contains("phases") && evidence["phases"].is_object()) {
-                              for (const auto& stage : (*manifest)["flow"]) {
-                                if (!stage.is_object() || !stage.contains("id") || !stage["id"].is_string()) continue;
-                                const std::string phase = stage["id"].get<std::string>();
-                                if (phase.empty() || phase.size() > 32 ||
-                                    !std::all_of(phase.begin(), phase.end(), [](unsigned char ch) {
-                                      return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
-                                             ch == '-' || ch == '_';
-                                    })) continue;
-                                if (evidence["phases"].contains(phase) &&
-                                    evidence["phases"][phase].is_boolean() &&
-                                    evidence["phases"][phase].get<bool>())
-                                  task_event(task_id, "phase_" + phase, "evidence", "standard");
-                              }
-                            }
-                          }
-                          task_event(task_id, effective_ok ? "completed" : "failed", "server", "standard");
-                        }
-                      }
-                    }
-                    if (parsed_info.contains("taskEvent") && parsed_info["taskEvent"].is_object()) {
-                      const auto& event = parsed_info["taskEvent"];
-                      if (event.contains("id") && event["id"].is_number_unsigned() &&
-                          event.contains("code") && event["code"].is_string()) {
-                        const std::string code = event["code"].get<std::string>();
-                        if (allowed_agent_event(code)) database->query(
-                            "INSERT INTO public.panel_task_events (task_id, code, source, level) "
-                            "SELECT id, $3, 'agent', $4 FROM public.panel_tasks "
-                            "WHERE id = $1::bigint AND agent_id = $2 AND status = 'running' "
-                            "ON CONFLICT (task_id, code) DO NOTHING",
-                            {std::to_string(event["id"].get<uint64_t>()), id, code,
-                             code == "key_ready" || code == "hash_verified" ? "trace" : "detailed"});
-                      }
-                    }
-                  }
-                  is_new = !agents.contains(id);
-                  agents[id] = {name, now_utc(), now};
-                }
-              }
-            }
-            if (replay) {
-              reply(client, 403, "application/json", R"({"error":"replayed heartbeat"})");
-            } else if (disabled) {
-              reply(client, 200, "application/json", R"({"disconnect":true})");
-            } else {
-              if (is_new) {
-              append_log("agents", "INFO", "Agent connected: " + name,
-                         "Агент підключився: " + name);
-              append_log("connect", "INFO", "Agent connected: " + name,
-                         "Агент підключився: " + name);
-              }
-              if (parsed_info.contains("taskEvent")) {
-                reply(client, 200, "application/json", R"({"ok":true})");
-                close(client);
-                return;
-              }
-              const auto queued = database->query(
-                  "UPDATE public.panel_tasks SET status = 'running', updated_at = now() "
-                  "WHERE id = (SELECT id FROM public.panel_tasks WHERE agent_id = $1 AND status = 'queued' "
-                  "ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id", {id});
-              if (queued.empty()) reply(client, 200, "application/json", R"({"ok":true})");
-              else {
-                task_event(queued[0][0], "dispatched", "server", "standard");
-                database->query(
-                    "INSERT INTO public.panel_siem_checks (task_id, state) VALUES ($1::bigint, $2) "
-                    "ON CONFLICT (task_id) DO NOTHING",
-                    {queued[0][0], siem.ready() ? "waiting" : "unconfigured"});
-                const auto module_rows = database->query("SELECT scenario, verbosity FROM public.panel_tasks WHERE id = $1", {queued[0][0]});
-                const std::string module = module_rows[0][0];
-                const auto manifest = load_module(module);
-                const bool windows = manifest && manifest->value("platform", "") == "windows";
-                const std::string script = module_file(module, windows ? "run.ps1" : "run.sh");
-                if (script.empty()) {
-                  database->query("UPDATE public.panel_tasks SET status = 'failed', result = '{\"error\":\"module missing\"}'::jsonb WHERE id = $1", {queued[0][0]});
-                  database->query("UPDATE public.panel_siem_checks SET state = 'skipped' WHERE task_id = $1::bigint", {queued[0][0]});
-                  task_event(queued[0][0], "module_missing", "server", "standard");
-                  reply(client, 200, "application/json", R"({"ok":true})");
-                } else {
-                  const std::string hash = sha256_hex(script);
-                  const std::string signature = agent_hmac_hex(id + "|" + nonce + "|" + queued[0][0] + "|" + module + "|" + hash);
-                  json response = {{"ok", true}, {"task", std::stoull(queued[0][0])},
-                                   {"module", module}, {"sha256", hash}, {"verbosity", module_rows[0][1]},
-                                   {"taskSignature", signature}};
-                  if (windows) response["script"] = script;
-                  reply(client, 200, "application/json", response.dump());
-                }
-              }
-            }
-          }
-        }
-      }
-      close(client);
+      handle_agent_heartbeat(client, request);
       return;
     }
     if (path == "/api/login" && method == "POST") {
       const auto body = request_body(client, request);
       const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object() || !payload.contains("username") || !payload["username"].is_string() ||
-          !payload.contains("password") || !payload["password"].is_string()) {
+      if (!payload.is_object() || !payload.contains("username") ||
+          !payload["username"].is_string() || !payload.contains("password") ||
+          !payload["password"].is_string()) {
         reply(client, 400, "application/json", R"({"error":"invalid request"})");
       } else if (!check_account(payload["username"].get<std::string>(),
                                 payload["password"].get<std::string>())) {
@@ -1539,7 +2190,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
           sessions[token] = std::chrono::steady_clock::now() + std::chrono::hours(8);
         }
         reply(client, 200, "application/json", R"({"ok":true})", false,
-              "Set-Cookie: panel_session=" + token + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800\r\n");
+              "Set-Cookie: panel_session=" + token +
+                  "; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800\r\n");
       }
       close(client);
       return;
@@ -1557,7 +2209,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
     if ((method == "GET" || method == "HEAD") && path == "/logo.png") {
       std::ifstream stream(dist_dir / "logo.png", std::ios::binary);
       if (stream) {
-        const std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        const std::string body((std::istreambuf_iterator<char>(stream)),
+                               std::istreambuf_iterator<char>());
         reply(client, 200, "image/png", body, head_only);
       } else {
         reply(client, 404, "text/plain", "Not found", head_only);
@@ -1573,7 +2226,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       const fs::path file = dist_dir / path.substr(1);
       std::ifstream stream(file, std::ios::binary);
       if (stream) {
-        const std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+        const std::string body((std::istreambuf_iterator<char>(stream)),
+                               std::istreambuf_iterator<char>());
         reply(client, 200, "font/woff2", body, head_only);
       } else {
         reply(client, 404, "text/plain", "Not found", head_only);
@@ -1592,134 +2246,23 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       return;
     }
     if (path == "/api/logout" && method == "POST") {
-      {
-        std::lock_guard lock(state_mutex);
-        sessions.erase(cookie_value(request, "panel_session"));
-      }
-      reply(client, 200, "application/json", R"({"ok":true})", false,
-            "Set-Cookie: panel_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");
-      close(client);
+      handle_logout(client, request);
       return;
     }
     if (path == "/api/creds" && method == "POST") {
-      const auto body = request_body(client, request);
-      const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object() || !payload.contains("username") || !payload["username"].is_string() ||
-          !payload.contains("currentPassword") || !payload["currentPassword"].is_string() ||
-          !payload.contains("newPassword") || !payload["newPassword"].is_string()) {
-        reply(client, 400, "application/json", R"({"error":"invalid request"})");
-      } else {
-        const std::string username = payload["username"].get<std::string>();
-        const std::string current = payload["currentPassword"].get<std::string>();
-        const std::string next = payload["newPassword"].get<std::string>();
-        if (username.empty() || username.size() > 64 || next.size() < 16 || next.size() > 256) {
-          reply(client, 400, "application/json", R"({"error":"username or password length invalid"})");
-        } else if (!check_account(load_account().username, current)) {
-          reply(client, 403, "application/json", R"({"error":"current password invalid"})");
-        } else {
-          const std::string salt = random_token().substr(0, 32);
-          database->query("UPDATE public.panel_admin SET username = $1, salt = $2, password_hash = $3 WHERE id = 1",
-                          {username, salt, password_digest(next, salt)});
-          {
-            std::lock_guard lock(state_mutex);
-            sessions.clear();
-          }
-          append_log("creds", "INFO", "Panel credentials changed", "Дані входу до панелі змінено");
-          reply(client, 200, "application/json", R"({"ok":true})", false,
-                "Set-Cookie: panel_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n");
-        }
-      }
-      close(client);
+      handle_update_credentials(client, request);
       return;
     }
     if (path == "/api/agents/disconnect" && method == "POST") {
-      const auto body = request_body(client, request);
-      const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object() || !payload.contains("id") || !payload["id"].is_string() ||
-          payload["id"].get<std::string>().size() > 64) {
-        reply(client, 400, "application/json", R"({"error":"invalid agent"})");
-      } else {
-        const std::string id = payload["id"].get<std::string>();
-        const auto rows = database->query(
-            "UPDATE public.panel_agents SET disabled = true WHERE id = $1 AND NOT disabled RETURNING name", {id});
-        if (rows.empty()) {
-          reply(client, 404, "application/json", R"({"error":"agent not found"})");
-        } else {
-          {
-            std::lock_guard lock(state_mutex);
-            agents.erase(id);
-          }
-          append_log("agents", "INFO", "Agent disconnected: " + rows[0][0],
-                     "Агента відключено: " + rows[0][0]);
-          reply(client, 200, "application/json", R"({"ok":true})");
-        }
-      }
-      close(client);
+      handle_disconnect_agent(client, request);
       return;
     }
     if (path == "/api/agents/siem-host" && method == "POST") {
-      const auto body = request_body(client, request);
-      const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object() || !payload.contains("id") || !payload["id"].is_string() ||
-          !payload.contains("host") || !payload["host"].is_string()) {
-        reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
-      } else {
-        const std::string id = payload["id"].get<std::string>();
-        const std::string host = payload["host"].get<std::string>();
-        const bool valid = !id.empty() && id.size() <= 64 && !host.empty() && host.size() <= 253 &&
-            std::all_of(host.begin(), host.end(), [](unsigned char ch) {
-              return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
-            });
-        if (!valid) reply(client, 400, "application/json", R"({"error":"invalid host mapping"})");
-        else {
-          const auto rows = database->query(
-              "UPDATE public.panel_agents SET siem_host = $2 WHERE id = $1 AND NOT disabled RETURNING id",
-              {id, host});
-          if (rows.empty()) reply(client, 404, "application/json", R"({"error":"agent not found"})");
-          else reply(client, 200, "application/json", json{{"id", id}, {"host", host}}.dump());
-        }
-      }
-      close(client);
+      handle_siem_host(client, request);
       return;
     }
     if (path == "/api/tasks" && method == "POST") {
-      const auto body = request_body(client, request);
-      const auto payload = body ? json::parse(*body, nullptr, false) : json();
-      if (!payload.is_object() || !payload.contains("module") || !payload["module"].is_string() ||
-          !payload.contains("agentId") || !payload["agentId"].is_string()) {
-        reply(client, 400, "application/json", R"({"error":"invalid task"})");
-      } else {
-        const std::string id = payload["agentId"].get<std::string>();
-        const std::string module = payload["module"].get<std::string>();
-        const std::string verbosity = payload.contains("verbosity") && payload["verbosity"].is_string()
-                                          ? payload["verbosity"].get<std::string>() : "standard";
-        if (verbosity != "standard" && verbosity != "detailed" && verbosity != "trace") {
-          reply(client, 400, "application/json", R"({"error":"invalid verbosity"})");
-          close(client);
-          return;
-        }
-        const auto selected_module = load_module(module);
-        if (!selected_module) {
-          reply(client, 404, "application/json", R"({"error":"module not found"})");
-          close(client);
-          return;
-        }
-        const bool windows = selected_module->value("platform", "") == "windows";
-        const auto rows = database->query(
-            "INSERT INTO public.panel_tasks (agent_id, scenario, verbosity) "
-            "SELECT id, $2, $3 FROM public.panel_agents "
-            "WHERE id = $1 AND NOT disabled AND last_seen > now() - INTERVAL '45 seconds' "
-            "AND ($4 = 'windows' AND info->>'os' LIKE 'Microsoft Windows%' "
-            "OR $4 = 'linux' AND info->>'os' = 'Linux') RETURNING id",
-            {id, module, verbosity, windows ? "windows" : "linux"});
-        if (rows.empty()) reply(client, 404, "application/json", R"({"error":"compatible agent unavailable"})");
-        else {
-          task_event(rows[0][0], "queued", "server", "standard");
-          append_log("tasks", "INFO", module + " queued for " + id, module + " поставлено в чергу для " + id);
-          reply(client, 200, "application/json", json{{"id", std::stoull(rows[0][0])}}.dump());
-        }
-      }
-      close(client);
+      handle_create_task(client, request);
       return;
     }
     if (method == "POST") {
@@ -1727,107 +2270,7 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
       close(client);
       return;
     }
-    if (path == "/api/health") {
-      reply(client, 200, "application/json", json{{"ok", true}}.dump(), head_only);
-    } else if (path == "/api/connection") {
-      if (query_value(target, "check") == "1") refresh_probe();
-      reply(client, 200, "application/json", connection_status().dump(), head_only);
-    } else if (path == "/api/agents") {
-      json connected;
-      {
-        std::lock_guard lock(state_mutex);
-        connected = live_agents_unlocked();
-      }
-      reply(client, 200, "application/json",
-            json{{"agents", connected}, {"pullImplemented", true}}.dump(), head_only);
-    } else if (path == "/api/siem") {
-      reply(client, 200, "application/json",
-            json{{"provider", "splunk"}, {"configured", siem.ready()},
-                 {"index", siem.index}, {"hostFields", siem.host_fields},
-                 {"correlation", "host-and-time"},
-                 {"graceSeconds", siem.grace_seconds}}.dump(), head_only);
-    } else if (path == "/api/tasks") {
-      json tasks = json::array();
-      const auto summary = database->query(
-          "SELECT COUNT(*) FILTER (WHERE status IN ('queued', 'running')), "
-          "COUNT(*) FILTER (WHERE status = 'completed') FROM public.panel_tasks");
-      const auto rows = database->query(
-          "SELECT t.id, t.agent_id, a.name, t.scenario, t.status, "
-          "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), t.result::text, t.verbosity, "
-          "COALESCE(s.state, CASE WHEN t.status = 'queued' THEN 'waiting' ELSE 'not_recorded' END), "
-          "COALESCE(s.alerts::text, '[]'), "
-          "COALESCE(to_char(s.checked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), ''), "
-          "COALESCE(s.error, ''), COALESCE(a.siem_host, a.name) "
-          "FROM public.panel_tasks t JOIN public.panel_agents a ON a.id = t.agent_id "
-          "LEFT JOIN public.panel_siem_checks s ON s.task_id = t.id "
-          "ORDER BY t.id DESC LIMIT 100");
-      for (const auto& row : rows)
-        tasks.push_back({{"id", row[0]}, {"agentId", row[1]}, {"agentName", row[2]},
-                         {"scenario", row[3]}, {"status", row[4]}, {"createdAt", row[5]},
-                         {"result", json::parse(row[6])}, {"verbosity", row[7]},
-                         {"siem", {{"state", row[8]}, {"alerts", json::parse(row[9])},
-                                   {"graceSeconds", siem.grace_seconds},
-                                   {"checkedAt", row[10]}, {"error", row[11]}, {"host", row[12]}}}});
-      reply(client, 200, "application/json",
-            json{{"tasks", tasks},
-                 {"counts", {{"active", std::stoull(summary[0][0])},
-                              {"completed", std::stoull(summary[0][1])}}}}.dump(), head_only);
-    } else if (path == "/api/task-events") {
-      const std::string task_id = query_value(target, "task");
-      if (task_id.empty() || task_id.size() > 20 ||
-          !std::all_of(task_id.begin(), task_id.end(), [](unsigned char ch) { return std::isdigit(ch); })) {
-        reply(client, 400, "application/json", R"({"error":"invalid task"})", head_only);
-      } else {
-        json events = json::array();
-        const auto rows = database->query(
-            "SELECT e.id, e.code, e.source, e.level, "
-            "to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') "
-            "FROM public.panel_task_events e WHERE e.task_id = $1::bigint ORDER BY e.id LIMIT 250",
-            {task_id});
-        for (const auto& row : rows)
-          events.push_back({{"id", row[0]}, {"code", row[1]}, {"source", row[2]},
-                            {"level", row[3]}, {"time", row[4]}});
-        reply(client, 200, "application/json", json{{"task", task_id}, {"events", events}}.dump(), head_only);
-      }
-    } else if (path == "/api/modules") {
-      json modules = json::array();
-      if (fs::exists(modules_dir)) for (const auto& entry : fs::directory_iterator(modules_dir)) {
-        if (!entry.is_directory()) continue;
-        const auto module = load_module(entry.path().filename().string());
-        if (module) modules.push_back(*module);
-      }
-      reply(client, 200, "application/json", json{{"modules", modules}}.dump(), head_only);
-    } else if (path == "/api/creds") {
-      reply(client, 200, "application/json", json{{"username", load_account().username}}.dump(), head_only);
-    } else if (path == "/api/logs") {
-      const std::string tab = query_value(target, "tab");
-      const std::string language = query_value(target, "lang") == "uk" ? "uk" : "en";
-      json entries = json::array();
-      {
-        std::lock_guard lock(state_mutex);
-        for (const auto& item : logs[tab]) {
-          entries.push_back({{"time", item.time}, {"level", item.level},
-                             {"message", language == "uk" ? item.uk : item.en}});
-        }
-      }
-      reply(client, 200, "application/json", json{{"tab", tab}, {"entries", entries}}.dump(), head_only);
-    } else if (path.rfind("/api/", 0) == 0) {
-      reply(client, 404, "application/json", R"({"error":"not found"})", head_only);
-    } else {
-      if (path.find("..") != std::string::npos || path.find('\\') != std::string::npos) {
-        reply(client, 400, "text/plain", "Invalid path", head_only);
-      } else {
-        fs::path file = dist_dir / path.substr(1);
-        if (path == "/" || !fs::is_regular_file(file)) file = dist_dir / "index.html";
-        std::ifstream stream(file, std::ios::binary);
-        if (!stream) {
-          reply(client, 404, "text/plain", "Not found", head_only);
-        } else {
-          const std::string body((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-          reply(client, 200, content_type(file), body, head_only);
-        }
-      }
-    }
+    handle_admin_get(client, path, target, head_only);
   } catch (const std::exception& error) {
     std::cerr << "request error: " << error.what() << '\n';
     reply(client, 500, "application/json", R"({"error":"internal error"})", head_only);
@@ -1837,7 +2280,8 @@ void handle_client(int client, bool agent_listener, bool module_listener = false
 
 int make_listener(int port, in_addr_t address_type) {
   const int listener = socket(AF_INET, SOCK_STREAM, 0);
-  if (listener < 0) return -1;
+  if (listener < 0)
+    return -1;
   const int reuse = 1;
   setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
   sockaddr_in address{};
@@ -1887,12 +2331,14 @@ int main(int argc, char** argv) {
   listen_port = std::stoi(argv[1]);
   agent_port = std::stoi(argv[2]);
   if (listen_port < 1 || listen_port > 65535 || agent_port < 1 || agent_port > 65535 ||
-      listen_port == agent_port) return 2;
+      listen_port == agent_port)
+    return 2;
   dist_dir = fs::absolute(argv[3]);
   modules_dir = dist_dir.parent_path() / "modules";
   {
     std::ifstream helper(dist_dir.parent_path() / "build/wg-client", std::ios::binary);
-    if (helper) wg_client_sha = sha256_hex(std::string(std::istreambuf_iterator<char>(helper), {}));
+    if (helper)
+      wg_client_sha = sha256_hex(std::string(std::istreambuf_iterator<char>(helper), {}));
   }
   std::signal(SIGPIPE, SIG_IGN);
   std::signal(SIGINT, [](int) { stop_requested = 1; });
@@ -1900,7 +2346,8 @@ int main(int argc, char** argv) {
   curl_global_init(CURL_GLOBAL_DEFAULT);
   try {
     initialize_database();
-    const auto key_rows = database->query("SELECT value FROM public.panel_settings WHERE key = 'agent_key'");
+    const auto key_rows =
+        database->query("SELECT value FROM public.panel_settings WHERE key = 'agent_key'");
     if (key_rows.size() != 1 || key_rows[0].size() != 1 || key_rows[0][0].size() != 64) {
       throw std::runtime_error("agent key is missing or invalid");
     }
@@ -1916,59 +2363,72 @@ int main(int argc, char** argv) {
     const char* siem_grace = std::getenv("PANEL_SIEM_GRACE_SECONDS");
     siem.url = siem_url ? siem_url : "";
     siem.api_key = siem_key ? siem_key : "";
-    if (siem_index && *siem_index) siem.index = siem_index;
+    if (siem_index && *siem_index)
+      siem.index = siem_index;
     if (siem_fields && *siem_fields) {
       siem.host_fields.clear();
       std::istringstream list(siem_fields);
       std::string field;
-      while (std::getline(list, field, ',')) siem.host_fields.push_back(field);
+      while (std::getline(list, field, ','))
+        siem.host_fields.push_back(field);
     }
     if (siem_grace && *siem_grace) {
       const std::string value(siem_grace);
       if (value.empty() || value.size() > 4 ||
-          !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch); }))
+          !std::all_of(value.begin(), value.end(),
+                       [](unsigned char ch) { return std::isdigit(ch); }))
         throw std::runtime_error("invalid PANEL_SIEM_GRACE_SECONDS");
       siem.grace_seconds = std::stoi(value);
     }
-    if (!siem.url.empty() && siem.url.back() == '/') siem.url.pop_back();
-    const bool valid_url = (siem.url.rfind("https://", 0) == 0 ||
-        siem.url.rfind("http://127.0.0.1:", 0) == 0 ||
-        siem.url.rfind("http://localhost:", 0) == 0) &&
+    if (!siem.url.empty() && siem.url.back() == '/')
+      siem.url.pop_back();
+    const bool valid_url =
+        (siem.url.rfind("https://", 0) == 0 || siem.url.rfind("http://127.0.0.1:", 0) == 0 ||
+         siem.url.rfind("http://localhost:", 0) == 0) &&
         siem.url.find_first_of("@?#\\\r\n\t ") == std::string::npos;
-    const bool valid_key = !siem.api_key.empty() && siem.api_key.size() <= 8192 &&
+    const bool valid_key =
+        !siem.api_key.empty() && siem.api_key.size() <= 8192 &&
         std::all_of(siem.api_key.begin(), siem.api_key.end(), [](unsigned char ch) {
           return std::isalnum(ch) || ch == '.' || ch == '-' || ch == '_';
         });
-    const bool valid_index = !siem.index.empty() && siem.index.size() <= 64 &&
-        std::all_of(siem.index.begin(), siem.index.end(), [](unsigned char ch) {
-          return std::isalnum(ch) || ch == '-' || ch == '_';
-        });
-    const bool valid_fields = !siem.host_fields.empty() && siem.host_fields.size() <= 5 &&
+    const bool valid_index =
+        !siem.index.empty() && siem.index.size() <= 64 &&
+        std::all_of(siem.index.begin(), siem.index.end(),
+                    [](unsigned char ch) { return std::isalnum(ch) || ch == '-' || ch == '_'; });
+    const bool valid_fields =
+        !siem.host_fields.empty() && siem.host_fields.size() <= 5 &&
         std::all_of(siem.host_fields.begin(), siem.host_fields.end(), [](const std::string& field) {
           return !field.empty() && field.size() <= 32 &&
-              std::all_of(field.begin(), field.end(), [](unsigned char ch) {
-                return std::isalnum(ch) || ch == '_' || ch == '.';
-              });
+                 std::all_of(field.begin(), field.end(), [](unsigned char ch) {
+                   return std::isalnum(ch) || ch == '_' || ch == '.';
+                 });
         });
     if ((!siem.url.empty() || !siem.api_key.empty() || !siem.index.empty()) &&
-        (!valid_url || !valid_key || !valid_index || !valid_fields ||
-         siem.grace_seconds < 30 || siem.grace_seconds > 1800))
-      throw std::runtime_error("invalid PANEL_SIEM_URL, PANEL_SIEM_API_KEY, PANEL_SIEM_INDEX, or PANEL_SIEM_HOST_FIELDS");
-    if (siem.ready()) database->query(
-        "UPDATE public.panel_siem_checks SET state = 'waiting' WHERE state = 'unconfigured' "
-        "AND task_id IN (SELECT id FROM public.panel_tasks WHERE status IN ('queued', 'running'))");
+        (!valid_url || !valid_key || !valid_index || !valid_fields || siem.grace_seconds < 30 ||
+         siem.grace_seconds > 1800))
+      throw std::runtime_error(
+          "invalid PANEL_SIEM_URL, PANEL_SIEM_API_KEY, PANEL_SIEM_INDEX, or "
+          "PANEL_SIEM_HOST_FIELDS");
+    if (siem.ready())
+      database->query(
+          "UPDATE public.panel_siem_checks SET state = 'waiting' WHERE state = 'unconfigured' "
+          "AND task_id IN (SELECT id FROM public.panel_tasks WHERE status IN ('queued', "
+          "'running'))");
   } catch (const std::exception& error) {
     std::cerr << "Panel database: " << error.what() << '\n';
     return 1;
   }
   append_log("main", "INFO", "Panel server started", "Сервер панелі запущено");
-  append_log("creds", "INFO", "Panel account loaded from PostgreSQL", "Обліковий запис панелі завантажено з PostgreSQL");
+  append_log("creds", "INFO", "Panel account loaded from PostgreSQL",
+             "Обліковий запис панелі завантажено з PostgreSQL");
   append_log("tasks", "INFO", "Task queue ready", "Черга завдань готова");
   append_log("agents", "INFO", "Linux module pull ready", "Pull модулів Linux готовий");
-  append_log("connect", "INFO", "External port check is pending", "Зовнішня перевірка порту очікується");
+  append_log("connect", "INFO", "External port check is pending",
+             "Зовнішня перевірка порту очікується");
 
   admin_socket = make_listener(listen_port, INADDR_LOOPBACK);
-  if (admin_socket < 0) return 1;
+  if (admin_socket < 0)
+    return 1;
   agent_socket = make_listener(agent_port, INADDR_ANY);
   if (agent_socket < 0) {
     close(admin_socket);
@@ -1979,25 +2439,32 @@ int main(int argc, char** argv) {
     const in_addr_t address = inet_addr(module_bind);
     const char* module_port_env = std::getenv("PANEL_MODULE_PORT");
     const int port = module_port_env ? std::stoi(module_port_env) : agent_port + 1;
-    if (address == INADDR_NONE || port < 1 || port > 65535) return 1;
+    if (address == INADDR_NONE || port < 1 || port > 65535)
+      return 1;
     module_socket = make_listener(port, ntohl(address));
-    if (module_socket < 0) return 1;
+    if (module_socket < 0)
+      return 1;
   }
-  std::cout << "Panel listening on http://127.0.0.1:" << listen_port
-            << "; agent endpoint on port " << agent_port << std::endl;
+  std::cout << "Panel listening on http://127.0.0.1:" << listen_port << "; agent endpoint on port "
+            << agent_port << std::endl;
   std::thread agent_worker([]() { accept_clients(agent_socket, true); });
   std::thread module_worker;
-  if (module_socket >= 0) module_worker = std::thread([]() { accept_clients(module_socket, false, true); });
+  if (module_socket >= 0)
+    module_worker = std::thread([]() { accept_clients(module_socket, false, true); });
   std::thread connection_worker(manage_connection);
   std::thread siem_worker;
-  if (siem.ready()) siem_worker = std::thread(monitor_siem);
+  if (siem.ready())
+    siem_worker = std::thread(monitor_siem);
   accept_clients(admin_socket, false);
   agent_worker.join();
-  if (module_worker.joinable()) module_worker.join();
+  if (module_worker.joinable())
+    module_worker.join();
   connection_worker.join();
-  if (siem_worker.joinable()) siem_worker.join();
+  if (siem_worker.joinable())
+    siem_worker.join();
   close(agent_socket);
-  if (module_socket >= 0) close(module_socket);
+  if (module_socket >= 0)
+    close(module_socket);
   close(admin_socket);
   return 0;
 }

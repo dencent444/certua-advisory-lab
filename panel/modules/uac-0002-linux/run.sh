@@ -6,6 +6,7 @@ import hashlib
 import http.client
 import json
 import os
+import random
 import signal
 import socket
 import subprocess
@@ -14,6 +15,22 @@ import time
 from pathlib import Path
 
 work = Path(sys.argv[1]).resolve(strict=True)
+timers = {}
+
+def start_stage(name):
+    delay = random.SystemRandom().randrange(800, 3001)
+    time.sleep(delay / 1000)
+    timers[name] = (time.monotonic_ns(), delay)
+
+def finish_stage(name, ok):
+    started, delay = timers.pop(name)
+    entry = {'stage': name, 'at': int(time.time_ns() / 1000000),
+             'durationMs': int((time.monotonic_ns() - started) / 1000000),
+             'delayMs': delay, 'ok': bool(ok)}
+    with (work / 'timing.jsonl').open('a') as output:
+        output.write(json.dumps(entry, separators=(',', ':')) + '\n')
+
+start_stage('binding')
 machine = Path('/etc/machine-id').read_text().strip() if Path('/etc/machine-id').is_file() else ''
 key = hashlib.sha256(b'certua-uac0002-lab:' + machine.encode()).digest()
 marker = b'INERT_LOADGRIP_STAGE'
@@ -21,7 +38,9 @@ blob = bytes(byte ^ key[i % len(key)] for i, byte in enumerate(marker))
 bound = work / 'host-bound.blob'
 bound.write_bytes(blob)
 binding = bool(machine) and bytes(byte ^ key[i % len(key)] for i, byte in enumerate(bound.read_bytes())) == marker
+finish_stage('binding', binding)
 
+start_stage('inject')
 ptrace = False
 pid = None
 reaped = False
@@ -47,7 +66,9 @@ finally:
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
         except (ProcessLookupError, ChildProcessError): pass
+finish_stage('inject', ptrace)
 
+start_stage('web')
 site = work / 'industrial-app'
 site.mkdir(mode=0o700)
 (site / 'health.php').write_text("<?php header('Content-Type: text/plain'); echo 'LAB_PHP_OK'; ?>\n")
@@ -74,15 +95,19 @@ finally:
     php.terminate()
     try: php.wait(timeout=3)
     except subprocess.TimeoutExpired: php.kill(); php.wait()
+finish_stage('web', web)
 
+start_stage('tunnel')
 cmd = ['curl', '--fail', '--silent', '--show-error', '--connect-timeout', '8', '--max-time', '15', '--noproxy', '']
 if sys.argv[3]: cmd += ['--proxy', sys.argv[3]]
 cmd += [sys.argv[2]]
 request = subprocess.run(cmd, capture_output=True, timeout=20)
 tunnel = request.returncode == 0 and request.stdout.strip() == b'LAB_UAC_0002_OK'
+finish_stage('tunnel', tunnel)
 result = {'phases': {'binding': binding, 'inject': ptrace, 'web': web, 'tunnel': tunnel},
           'metrics': {'blobBytes': len(blob), 'ptrace': ptrace, 'phpLoopback': web,
-                      'privateRequest': tunnel, 'foreignProcessesTouched': 0}}
+                      'privateRequest': tunnel, 'foreignProcessesTouched': 0},
+          'timeline': [json.loads(line) for line in (work / 'timing.jsonl').read_text().splitlines()]}
 (work / 'result.json').write_text(json.dumps(result, separators=(',', ':')))
 if not all(result['phases'].values()): sys.exit(1)
 PY

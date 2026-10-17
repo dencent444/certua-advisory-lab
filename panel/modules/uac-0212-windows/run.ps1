@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'shortcut'
 $phases = [ordered]@{ shortcut = $false; powershell = $false; persistence = $false; copy = $false }
 $metrics = [ordered]@{}
 
@@ -116,14 +117,20 @@ try {
   $shortcut.Arguments = '-NoProfile -File "' + $stage + '"'
   $shortcut.Save()
   $phases.shortcut = Test-Path $lnk
+  Finish-LabStep 'shortcut' $phases.shortcut
+  Start-LabStep 'powershell'
   Invoke-Item -LiteralPath $lnk
   for ($i = 0; $i -lt 25 -and -not (Test-Path -LiteralPath $marker); $i++) { Start-Sleep -Milliseconds 200 }
   $phases.powershell = Test-Path -LiteralPath $marker
+  Finish-LabStep 'powershell' $phases.powershell
+  Start-LabStep 'persistence'
   $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
   $name = 'CertUaLab-' + [guid]::NewGuid().ToString('N')
   try {
     New-ItemProperty -Path $runPath -Name $name -Value $stage -PropertyType String -Force | Out-Null
     $phases.persistence = (Get-ItemProperty -Path $runPath -Name $name).$name -eq $stage
+    Finish-LabStep 'persistence' $phases.persistence
+    Start-LabStep 'copy'
   } finally { Remove-ItemProperty -Path $runPath -Name $name -ErrorAction SilentlyContinue }
   $source = Join-Path $WorkDir 'synthetic-supplier-docs'
   $destination = Join-Path $WorkDir 'staged-docs'
@@ -131,6 +138,7 @@ try {
   [IO.File]::WriteAllText((Join-Path $source 'specification.txt'), 'LAB')
   $robocopy = Start-Process -FilePath (Get-Command robocopy.exe).Source -ArgumentList ('"' + $source + '" "' + $destination + '" /E /R:0 /W:0') -WindowStyle Hidden -PassThru -Wait
   $phases.copy = $robocopy.ExitCode -le 7 -and (Test-Path (Join-Path $destination 'specification.txt'))
+  Finish-LabStep 'copy' $phases.copy
   $metrics.realDocumentsRead = 0
   $metrics.externalRequests = 0
 

@@ -5,6 +5,7 @@ if ($missing.Count) {
   @{ preflight = @{ ok = $false; missing = ($missing -join ',') } } | ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'hta'
 $taskName = 'CertUaLab-' + [guid]::NewGuid().ToString('N')
 $hta = Join-Path $WorkDir 'RecordsService.hta'
 $marker = Join-Path $WorkDir 'hta-marker.txt'
@@ -16,6 +17,8 @@ var out = fso.CreateTextFile('$scriptMarker', true); out.WriteLine('CERTUA_LAB')
 </script></html>
 "@ | Set-Content -LiteralPath $hta -Encoding ASCII
 $phases = @{ hta = (Test-Path -LiteralPath $hta); task = $false; python = $false }
+Finish-LabStep 'hta' $phases.hta
+Start-LabStep 'task'
 try {
   $action = New-ScheduledTaskAction -Execute (Get-Command mshta.exe).Source -Argument ('"' + $hta + '"')
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5)
@@ -24,6 +27,8 @@ try {
   Start-ScheduledTask -TaskName $taskName
   for ($i=0; $i -lt 30 -and -not (Test-Path -LiteralPath $marker); $i++) { Start-Sleep -Milliseconds 200 }
   $phases.task = Test-Path -LiteralPath $marker
+  Finish-LabStep 'task' $phases.task
+  Start-LabStep 'python'
 } finally {
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 }
@@ -35,5 +40,6 @@ pathlib.Path(sys.argv[1]).write_text('CERTUA_LAB')
 '@ | Set-Content -LiteralPath $stage -Encoding ASCII
 & (Get-Command python.exe).Source $stage $pythonMarker
 $phases.python = (Test-Path -LiteralPath $pythonMarker) -and ((Get-Content -LiteralPath $pythonMarker -Raw).Trim() -eq 'CERTUA_LAB')
+Finish-LabStep 'python' $phases.python
 @{ phases = $phases; metrics = @{ htaLaunched = $phases.task; pythonStage = $phases.python; externalRequests = 0 } } |
   ConvertTo-Json -Compress -Depth 5 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII

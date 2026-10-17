@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'chm'
 $phases = [ordered]@{ chm = $false; shell = $false; plugins = $false; tasks = $false }
 $metrics = [ordered]@{}
 
@@ -110,7 +111,11 @@ try {
   $html = Join-Path $WorkDir 'part.html'
   [IO.File]::WriteAllText($html, '<html><body>LAB CHM CONTENT; no active script</body></html>')
   $phases.chm = Test-Path $html
+  Finish-LabStep 'chm' $phases.chm
+  Start-LabStep 'shell'
   $phases.shell = Start-LabPowerShell (Join-Path $WorkDir 'shell-marker.txt')
+  Finish-LabStep 'shell' $phases.shell
+  Start-LabStep 'plugins'
   $pluginDir = Join-Path $WorkDir 'SPECTR'
   New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $pluginDir 'IDCLIPNET_x86.dll'), 'INERT DLL NAME ONLY')
@@ -119,9 +124,12 @@ try {
   $archive = Join-Path $WorkDir 'decoys.zip'
   Compress-Archive -Path (Join-Path $pluginDir 'sample.docx') -DestinationPath $archive -Force
   $phases.plugins = (Test-Path $archive) -and (Test-Path (Join-Path $pluginDir 'chrome_updater.dll'))
+  Finish-LabStep 'plugins' $phases.plugins
+  Start-LabStep 'tasks'
   $one = Start-LabTask ('CertUaLab-IDCLIPNET-' + [guid]::NewGuid().ToString('N')) (Join-Path $WorkDir 'task-one.txt')
   $two = Start-LabTask ('CertUaLab-FIRMA-' + [guid]::NewGuid().ToString('N')) (Join-Path $WorkDir 'task-two.txt')
   $phases.tasks = $one -and $two
+  Finish-LabStep 'tasks' $phases.tasks
   $metrics.realBrowserFilesRead = 0
   $metrics.externalRequests = 0
 

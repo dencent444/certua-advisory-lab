@@ -8,6 +8,7 @@ if (@($missing).Count -gt 0) {
     Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lure'
 $phases = [ordered]@{ lure = $false; powershell = $false; key = $false; upload = $false; tor = $false }
 $metrics = [ordered]@{ externalRequests = 0; privateKeyUploaded = $false; opensshServiceChanged = $false; torStarted = $false }
 $runError = ''
@@ -21,12 +22,16 @@ try {
   [IO.File]::Copy((Get-Command cmd.exe).Source, $lure)
   $lureProcess = Start-Process -FilePath $lure -ArgumentList ('/d /c echo CERTUA_LAB>"' + $lureMarker + '"') -WindowStyle Hidden -PassThru -Wait
   $phases.lure = $lureProcess.ExitCode -eq 0 -and (Test-Path -LiteralPath $lureMarker)
+  Finish-LabStep 'lure' $phases.lure
+  Start-LabStep 'powershell'
 
   $marker = Join-Path $WorkDir 'init-marker.txt'
   $code = "[IO.File]::WriteAllText('$($marker.Replace("'", "''"))','CERTUA_LAB_INIT')"
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
   $shell = Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList "-NoProfile -EncodedCommand $encoded" -WindowStyle Hidden -PassThru -Wait
   $phases.powershell = $shell.ExitCode -eq 0 -and (Test-Path -LiteralPath $marker)
+  Finish-LabStep 'powershell' $phases.powershell
+  Start-LabStep 'key'
 
   $private = Join-Path $WorkDir 'lab_rsa'
   $public = "$private.pub"
@@ -38,6 +43,8 @@ try {
   $phases.key = $keygen.ExitCode -eq 0 -and (Test-Path -LiteralPath $private) -and
     (Test-Path -LiteralPath $authorized) -and
     ((Get-Content -LiteralPath $authorized -Raw).StartsWith('ssh-rsa '))
+  Finish-LabStep 'key' $phases.key
+  Start-LabStep 'upload'
 
   if ($phases.key) {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -62,11 +69,14 @@ try {
     if (-not $process.WaitForExit(8000)) { throw 'curl did not finish' }
     $phases.upload = $process.ExitCode -eq 0
   }
+  Finish-LabStep 'upload' $phases.upload
+  Start-LabStep 'tor'
 
   $tor = Join-Path $WorkDir 'torrc.lab'
   $torDir = Join-Path $WorkDir 'hidden-service'
   [IO.File]::WriteAllText($tor, "HiddenServiceDir $torDir`nHiddenServicePort 22 127.0.0.1:9`n")
   $phases.tor = (Get-Content -LiteralPath $tor -Raw).Contains('HiddenServicePort 22 127.0.0.1:9')
+  Finish-LabStep 'tor' $phases.tor
 } catch {
   $runError = $_.Exception.Message
 } finally {

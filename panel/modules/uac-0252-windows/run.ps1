@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lure'
 $phases = [ordered]@{ lure = $false; archive = $false; execute = $false; decoys = $false }
 $metrics = [ordered]@{}
 
@@ -110,6 +111,8 @@ try {
   $html = Join-Path $WorkDir 'update-app.html'
   [IO.File]::WriteAllText($html, '<html><body>LAB APP UPDATE</body></html>')
   $phases.lure = Test-Path $html
+  Finish-LabStep 'lure' $phases.lure
+  Start-LabStep 'archive'
   $payload = Join-Path $WorkDir 'payload'
   New-Item -ItemType Directory -Path $payload -Force | Out-Null
   Copy-Item -LiteralPath (Get-Command cmd.exe).Source -Destination (Join-Path $payload 'AppUpdate.exe')
@@ -119,13 +122,18 @@ try {
   Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
   $exe = Join-Path $expanded 'AppUpdate.exe'
   $phases.archive = Test-Path $exe
+  Finish-LabStep 'archive' $phases.archive
+  Start-LabStep 'execute'
   $phases.execute = Start-LabCmd $exe (Join-Path $WorkDir 'process-marker.txt')
+  Finish-LabStep 'execute' $phases.execute
+  Start-LabStep 'decoys'
   $decoys = Join-Path $WorkDir 'synthetic-data'
   New-Item -ItemType Directory -Path $decoys -Force | Out-Null
   'LAB' | Set-Content -LiteralPath (Join-Path $decoys 'sample.txt') -Encoding ASCII
   'LAB' | Set-Content -LiteralPath (Join-Path $decoys 'sample.docx') -Encoding ASCII
   $found = @(Get-ChildItem -LiteralPath $decoys -File)
   $phases.decoys = $found.Count -eq 2
+  Finish-LabStep 'decoys' $phases.decoys
   $metrics.syntheticFiles = $found.Count
   $metrics.realFilesRead = 0
 

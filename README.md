@@ -4,6 +4,46 @@ Run a bounded simulation of a documented CERT-UA chain on a test host, then comp
 
 The current catalog has [18 scenarios across 18 UAC clusters](panel/modules/coverage.json): 3 Linux and 15 Windows. Each module links to its source report and states which parts of the original chain are replaced with lab actions. The [selection register](panel/modules/SELECTION.md) explains why a cluster was included.
 
+## Interface demo
+
+The panel is available in English and Ukrainian. These screenshots show a populated test installation.
+
+### Overview
+
+![Overview with agent and run counts, recent simulations](docs/screenshots/overview.png)
+
+### Scenarios
+
+![Scenario description, launch controls, and searchable catalog](docs/screenshots/scenarios.png)
+
+### Runs
+
+![Run timeline, SIEM observation, stage detail, and execution log](docs/screenshots/runs.png)
+
+### Agents
+
+![Connected agents and agent details](docs/screenshots/agents.png)
+
+### Settings
+
+![Panel account, credentials form, and SIEM status](docs/screenshots/settings.png)
+
+## Development
+
+The React pages live in `panel/src/`; `App.tsx` handles navigation and run selection, while page components own their forms and presentation. Shared API types are in `models.ts`, and the run graph's labels and stage definitions are in `attackMapData.ts`. The C++ server keeps request routing in `handle_client` and delegates agent, admin, and task operations to focused handlers.
+
+After editing the panel, run these checks from `panel/`:
+
+```sh
+npm run format:check
+npm run build
+clang-format --dry-run --Werror server/main.cpp server/postgres.hpp
+g++ -std=c++20 -O2 -Wall -Wextra -pthread server/main.cpp -lcurl -lcrypto -ldl -o build/panel-server
+python3 modules/validate.py
+```
+
+Use `npm run format` and `clang-format -i server/main.cpp server/postgres.hpp` to apply the configured styles.
+
 ## What runs where
 
 | Component | Job |

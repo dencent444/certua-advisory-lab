@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lure'
 $phases = [ordered]@{ lure = $false; shell = $false; msi = $false; stage = $false }
 $metrics = [ordered]@{}
 
@@ -112,13 +113,20 @@ try {
   [IO.File]::WriteAllText($lure, '<html><body>LAB VERIFICATION — no commands displayed</body></html>')
   [IO.File]::WriteAllText($commandFile, 'LAB_ONLY')
   $phases.lure = (Test-Path $lure) -and (Test-Path $commandFile)
+  Finish-LabStep 'lure' $phases.lure
+  Start-LabStep 'shell'
   $phases.shell = Start-LabPowerShell (Join-Path $WorkDir 'powershell-marker.txt')
+  Finish-LabStep 'shell' $phases.shell
+  Start-LabStep 'msi'
   $msi = Start-Process -FilePath (Get-Command msiexec.exe).Source -ArgumentList '/?' -WindowStyle Hidden -PassThru
   if (-not $msi.WaitForExit(3000)) { Stop-Process -Id $msi.Id -Force -ErrorAction SilentlyContinue }
   $phases.msi = $msi.HasExited
+  Finish-LabStep 'msi' $phases.msi
+  Start-LabStep 'stage'
   $package = Join-Path $WorkDir 'LUNEXSTEALER-inert.msi'
   [IO.File]::WriteAllText($package, 'INERT_LAB_PACKAGE_NOT_INSTALLABLE')
   $phases.stage = (Test-Path $package) -and ((Get-Item $package).Length -gt 0)
+  Finish-LabStep 'stage' $phases.stage
   $metrics.msiInstalled = $false
   $metrics.externalRequests = 0
 

@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'document'
 $phases = [ordered]@{ document = $false; com = $false; task = $false; payload = $false }
 $metrics = [ordered]@{}
 
@@ -115,18 +116,25 @@ try {
   $shortcut.Arguments = '-NoProfile -Command exit'
   $shortcut.Save()
   $phases.document = (Test-Path $document) -and (Test-Path $lnk)
+  Finish-LabStep 'document' $phases.document
+  Start-LabStep 'com'
   $guid = [guid]::NewGuid().ToString('B')
   $key = 'HKCU:\Software\Classes\CLSID\' + $guid + '\InprocServer32'
   try {
     New-Item -Path $key -Force | Out-Null
     Set-Item -Path $key -Value (Join-Path $WorkDir 'EhStoreShell.dll')
     $phases.com = (Get-Item -Path $key).GetValue('') -eq (Join-Path $WorkDir 'EhStoreShell.dll')
+    Finish-LabStep 'com' $phases.com
+    Start-LabStep 'task'
   } finally { Remove-Item -LiteralPath ('HKCU:\Software\Classes\CLSID\' + $guid) -Recurse -Force -ErrorAction SilentlyContinue }
   $task = 'CertUaLab-OneDriveHealth-' + [guid]::NewGuid().ToString('N')
   $phases.task = Start-LabTask $task (Join-Path $WorkDir 'task-marker.txt')
+  Finish-LabStep 'task' $phases.task
+  Start-LabStep 'payload'
   [IO.File]::WriteAllText((Join-Path $WorkDir 'EhStoreShell.dll'), 'INERT DLL NAME ONLY')
   [IO.File]::WriteAllText((Join-Path $WorkDir 'SplashScreen.png'), 'INERT IMAGE NAME ONLY')
   $phases.payload = (Test-Path (Join-Path $WorkDir 'EhStoreShell.dll')) -and (Test-Path (Join-Path $WorkDir 'SplashScreen.png'))
+  Finish-LabStep 'payload' $phases.payload
   $metrics.explorerRestarted = $false
   $metrics.foreignProcessInjected = $false
 

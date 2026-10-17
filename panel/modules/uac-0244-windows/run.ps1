@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'shortcut'
 $phases = [ordered]@{ shortcut = $false; hta = $false; task = $false; loader = $false }
 $metrics = [ordered]@{}
 
@@ -115,6 +116,8 @@ try {
   $shortcut.Arguments = '"' + $hta + '"'
   $shortcut.Save()
   $phases.shortcut = Test-Path $lnk
+  Finish-LabStep 'shortcut' $phases.shortcut
+  Start-LabStep 'hta'
   $jsPath = $marker.Replace('\','\\').Replace("'","\'")
   $page = '<html><head><HTA:APPLICATION SHOWINTASKBAR="no" WINDOWSTATE="minimize" /></head><script>' +
     "var fso=new ActiveXObject('Scripting.FileSystemObject'); var f=fso.CreateTextFile('$jsPath',true); f.WriteLine('CERTUA_LAB'); f.Close(); window.close();" +
@@ -123,11 +126,16 @@ try {
   Invoke-Item -LiteralPath $lnk
   for ($i = 0; $i -lt 25 -and -not (Test-Path -LiteralPath $marker); $i++) { Start-Sleep -Milliseconds 200 }
   $phases.hta = Test-Path -LiteralPath $marker
+  Finish-LabStep 'hta' $phases.hta
+  Start-LabStep 'task'
   $taskName = 'CertUaLab-AgingFly-' + [guid]::NewGuid().ToString('N')
   $phases.task = Start-LabTask $taskName (Join-Path $WorkDir 'task-marker.txt')
+  Finish-LabStep 'task' $phases.task
+  Start-LabStep 'loader'
   $loader = Join-Path $WorkDir 'AGINGFLY-inert.exe'
   Copy-Item -LiteralPath (Get-Command cmd.exe).Source -Destination $loader
   $phases.loader = Start-LabCmd $loader (Join-Path $WorkDir 'loader-marker.txt')
+  Finish-LabStep 'loader' $phases.loader
   $metrics.foreignProcessesInjected = 0
   $metrics.externalRequests = 0
 

@@ -6,6 +6,7 @@ if (@($missing).Count -gt 0) {
     ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lure'
 $phases = [ordered]@{ lure = $false; python = $false; identity = $false; persistence = $false }
 $metrics = [ordered]@{}
 
@@ -110,15 +111,21 @@ try {
   $lure = Join-Path $WorkDir 'fund.pdf.exe'
   Copy-Item -LiteralPath (Get-Command cmd.exe).Source -Destination $lure
   $phases.lure = Start-LabCmd $lure (Join-Path $WorkDir 'lure-marker.txt')
+  Finish-LabStep 'lure' $phases.lure
+  Start-LabStep 'python'
   $pythonStage = Join-Path $WorkDir 'pluggyape-lab.py'
   $pythonMarker = Join-Path $WorkDir 'python-marker.txt'
   [IO.File]::WriteAllText($pythonStage, "import pathlib,sys`npathlib.Path(sys.argv[1]).write_text('CERTUA_LAB')`n")
   $child = Start-Process -FilePath (Get-Command python.exe).Source -ArgumentList ('"' + $pythonStage + '" "' + $pythonMarker + '"') -WindowStyle Hidden -Wait -PassThru
   $phases.python = $child.ExitCode -eq 0 -and (Test-Path $pythonMarker)
+  Finish-LabStep 'python' $phases.python
+  Start-LabStep 'identity'
   $data = [Text.Encoding]::UTF8.GetBytes($env:COMPUTERNAME + '|' + $env:PROCESSOR_ARCHITECTURE)
   $digest = [Security.Cryptography.SHA256]::Create().ComputeHash($data)
   $deviceId = [BitConverter]::ToString($digest,0,16).Replace('-','')
   $phases.identity = $deviceId.Length -eq 32
+  Finish-LabStep 'identity' $phases.identity
+  Start-LabStep 'persistence'
   $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
   $runName = 'CertUaLab-' + [guid]::NewGuid().ToString('N')
   try {
@@ -126,6 +133,7 @@ try {
     $persist = (Get-ItemProperty -Path $runPath -Name $runName).$runName -eq $lure
     $beacon = Invoke-LabLoopback (@{ id = $deviceId; os = 'Windows' } | ConvertTo-Json -Compress)
     $phases.persistence = $persist -and $beacon
+    Finish-LabStep 'persistence' $phases.persistence
   } finally { Remove-ItemProperty -Path $runPath -Name $runName -ErrorAction SilentlyContinue }
   $metrics.deviceIdBytes = 16
   $metrics.externalRequests = 0

@@ -15,8 +15,8 @@ class Postgres {
   using Status = int (*)(const void*);
   using Error = char* (*)(const void*);
   using Finish = void (*)(void*);
-  using ExecParams = void* (*)(void*, const char*, int, const unsigned*,
-                               const char* const*, const int*, const int*, int);
+  using ExecParams = void* (*)(void*, const char*, int, const unsigned*, const char* const*,
+                               const int*, const int*, int);
   using ResultStatus = int (*)(const void*);
   using Tuples = int (*)(const void*);
   using Fields = int (*)(const void*);
@@ -39,17 +39,20 @@ class Postgres {
   template <typename Function>
   Function symbol(const char* name) {
     auto* address = dlsym(library_, name);
-    if (!address) throw std::runtime_error(std::string("missing libpq symbol: ") + name);
+    if (!address)
+      throw std::runtime_error(std::string("missing libpq symbol: ") + name);
     return reinterpret_cast<Function>(address);
   }
 
  public:
   Postgres() {
     const char* url = std::getenv("PANEL_DATABASE_URL");
-    if (!url || !*url) throw std::runtime_error("PANEL_DATABASE_URL is required");
+    if (!url || !*url)
+      throw std::runtime_error("PANEL_DATABASE_URL is required");
     connection_string_ = url;
     library_ = dlopen("libpq.so.5", RTLD_NOW | RTLD_LOCAL);
-    if (!library_) throw std::runtime_error("libpq.so.5 is required");
+    if (!library_)
+      throw std::runtime_error("libpq.so.5 is required");
     connect_ = symbol<Connect>("PQconnectdb");
     status_ = symbol<Status>("PQstatus");
     error_ = symbol<Error>("PQerrorMessage");
@@ -63,7 +66,8 @@ class Postgres {
   }
 
   ~Postgres() {
-    if (library_) dlclose(library_);
+    if (library_)
+      dlclose(library_);
   }
 
   Postgres(const Postgres&) = delete;
@@ -73,7 +77,8 @@ class Postgres {
   std::vector<std::vector<std::string>> query(
       const std::string& sql, const std::vector<std::string>& parameters = {}) const {
     void* connection = connect_(connection_string_.c_str());
-    if (!connection) throw std::runtime_error("PostgreSQL connection allocation failed");
+    if (!connection)
+      throw std::runtime_error("PostgreSQL connection allocation failed");
     if (status_(connection) != 0) {
       const std::string message = error_(connection);
       finish_(connection);
@@ -82,12 +87,14 @@ class Postgres {
 
     std::vector<const char*> values;
     values.reserve(parameters.size());
-    for (const auto& parameter : parameters) values.push_back(parameter.c_str());
-    void* result = exec_params_(connection, sql.c_str(), static_cast<int>(values.size()),
-                                nullptr, values.data(), nullptr, nullptr, 0);
+    for (const auto& parameter : parameters)
+      values.push_back(parameter.c_str());
+    void* result = exec_params_(connection, sql.c_str(), static_cast<int>(values.size()), nullptr,
+                                values.data(), nullptr, nullptr, 0);
     if (!result || (result_status_(result) != 1 && result_status_(result) != 2)) {
       const std::string message = error_(connection);
-      if (result) clear_(result);
+      if (result)
+        clear_(result);
       finish_(connection);
       throw std::runtime_error("PostgreSQL query failed: " + message);
     }

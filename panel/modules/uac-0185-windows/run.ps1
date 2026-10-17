@@ -5,6 +5,7 @@ if ($missing.Count) {
   @{ preflight = @{ ok = $false; missing = ($missing -join ',') } } | ConvertTo-Json -Compress -Depth 4 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
   return
 }
+Start-LabStep 'lnk'
 $payload = Join-Path $WorkDir 'package'
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
 $marker = Join-Path $WorkDir 'batch-marker.txt'
@@ -38,10 +39,17 @@ $shortcut.TargetPath = (Get-Command mshta.exe).Source
 $shortcut.Arguments = '"' + $hta + '"'
 $shortcut.Save()
 $phases = @{ lnk = (Test-Path -LiteralPath $lnk); hta = $false; unpack = $false; batch = $false }
+Finish-LabStep 'lnk' $phases.lnk
+Start-LabStep 'hta'
 Invoke-Item -LiteralPath $lnk
 for ($i=0; $i -lt 50 -and -not (Test-Path -LiteralPath $marker); $i++) { Start-Sleep -Milliseconds 200 }
 $phases.hta = Test-Path -LiteralPath $expanded
+Finish-LabStep 'hta' $phases.hta
+Start-LabStep 'unpack'
 $phases.unpack = Test-Path -LiteralPath (Join-Path $expanded 'Registry.hta')
+Finish-LabStep 'unpack' $phases.unpack
+Start-LabStep 'batch'
 $phases.batch = (Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw).Trim() -eq 'CERTUA_LAB')
+Finish-LabStep 'batch' $phases.batch
 @{ phases = $phases; metrics = @{ localArchiveBytes = (Get-Item -LiteralPath $disguised).Length; localShortcut = $phases.lnk; remoteDownloads = 0 } } |
   ConvertTo-Json -Compress -Depth 5 | Set-Content -LiteralPath (Join-Path $WorkDir 'result.json') -Encoding ASCII
